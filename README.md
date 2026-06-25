@@ -72,63 +72,6 @@ bun link
 
 Then you can run `skate` from anywhere.
 
----
-
-## CLI Usage
-
-### Process a local video
-
-```bash
-bun start -- clip video.mp4
-```
-
-### Process a YouTube video
-
-```bash
-bun start -- youtube https://youtube.com/watch?v=abc123
-```
-
-### Auto-detect URL or file
-
-```bash
-bun start -- https://youtube.com/watch?v=abc123
-bun start -- video.mp4
-```
-
-### Analyze only (skip rendering)
-
-```bash
-bun start -- analyze video.mp4
-```
-
-### Render from cached analysis
-
-```bash
-bun start -- render video.mp4
-```
-
-### Watch a directory for new files
-
-```bash
-bun start -- watch ./videos
-```
-
-### Disable face tracking
-
-```bash
-bun start -- clip video.mp4 --no-crop
-bun start -- youtube https://youtube.com/watch?v=abc123 --no-crop
-```
-
-By default, L2S tracks faces for smart vertical framing. Pass `--no-crop` to use a static center crop instead.
-
-### Check dependencies
-
-```bash
-bun start -- doctor
-```
-
----
 
 ## Configuration
 
