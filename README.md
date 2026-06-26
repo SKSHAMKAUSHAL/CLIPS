@@ -1,226 +1,75 @@
-# L2S (Long-to-Short) — AI-Powered YouTube → Viral Shorts (clipper) CLI
-
-
+# L2S (Long-to-Short) — AI-Powered YouTube → Viral Shorts
 
 > Turn long-form videos into viral-ready vertical shorts, entirely on your local machine. Free, no cloud restrictions.
 Saw a bunch of paid tools doing this — why pay when you can run it locally? L2S uses **faster-whisper** for transcription, **Ollama** for AI ranking, and **FFmpeg** for rendering with advanced manual framing control. Everything runs on your machine.
 
----
+L2S is a local web application that turns long-form videos into viral-ready vertical shorts. 
+It runs a Node.js Express server and provides a web UI to process videos locally on your machine, eliminating the need for expensive cloud subscriptions.
 
+## Features
 
+- **Download**: Pulls videos from YouTube using `yt-dlp` (or processes local video files).
+- **Transcribe**: Uses the lightning-fast Groq Whisper API (or a local `faster-whisper` Python fallback) to transcribe audio with precise word-level timestamps.
+- **Chunk & Score**: Automatically chunks the transcript into 20–90 second natural segments and scores them heuristically based on speaking rate, hooks, and engagement markers.
+- **AI Ranking**: Sends top clip candidates to a local LLM via `Ollama` to evaluate and score their virality.
+- **Render**: Customizes the video with smart vertical cropping and renders the final MP4 clips with burned-in subtitles using `FFmpeg`.
 
 ## How It Works
 
-```
-Input (URL or file)
-  → Download (yt-dlp)
-  → Transcribe (faster-whisper)
-  → Chunk transcript into segments
-  → Score heuristically (no AI needed)
-  → Rank with local LLM (Ollama)
-  → Select best clips
-  → Track faces for smart vertical crop
-  → Render clips with subtitles burned in
-  → Output organized shorts
-```
+## Prerequisites
 
----
+Before running the project, make sure you have the following installed on your system:
 
-## Requirements
+- **Node.js** (v18+)
+- **FFmpeg** (Must be installed and added to your system PATH)
+- **yt-dlp** (Must be installed and added to your system PATH)
+- **Ollama** (For local AI ranking. Recommended model: `llama3.2:3b`)
+- *(Optional)* **Python 3** (Only required if you plan to use local `faster-whisper` for transcription instead of the Groq API)
 
-| Tool               | Purpose                    | Check                        |
-| ------------------ | -------------------------- | ---------------------------- |
-| **Bun**            | Runtime & package manager  | `bun --version`              |
-| **FFmpeg**         | Video cutting & processing | `ffmpeg -version`            |
-| **yt-dlp**         | YouTube downloading        | `yt-dlp --version`           |
-| **Ollama**         | Local LLM for AI ranking   | `ollama --version`           |
-| **Python 3**       | Whisper & OpenCV scripts   | `python3 --version`          |
-| **faster-whisper** | Local transcription        | installed via `setup-python` |
-| **OpenCV**         | Face detection             | installed via `setup-python` |
+## Installation & Setup
 
-### Recommended Ollama Model
+1. **Clone the repository and navigate to the directory:**
+   ```bash
+   git clone https://github.com/yourusername/skate.git
+   cd skate
+   ```
 
-```bash
-ollama pull llama3.2:3b
-```
+2. **Install Node.js dependencies:**
+   ```bash
+   npm install
+   ```
 
----
+3. **Set up Environment Variables:**
+   Create or edit the `.env` file in the root directory and add your Groq API key for faster transcriptions:
+   ```env
+   GROQ_API_KEY=your_groq_api_key_here
+   ```
 
-## Installation
+4. **Start the local server:**
+   ```bash
+   npm run dev
+   ```
+   *This will start the Node.js Express server on port 3000.*
 
-### 1. Clone and install dependencies
+5. **Open the Web UI:**
+   Navigate to `http://localhost:3000` in your web browser.
 
-```bash
-git clone https://github.com/yourusername/skate.git
-cd skate
-bun install
-```
+## How to Use
 
-### 2. Set up Python environment (Whisper + OpenCV)
-
-```bash
-bun run setup-python
-```
-
-This creates a virtual environment at `~/.skate/venv` and installs:
-
-- `faster-whisper` — speech-to-text with word-level timestamps
-- `opencv-contrib-python` — face detection via Haar cascades
-- `numpy` — numerical processing
-
-### 3. Link the CLI (optional)
-
-```bash
-bun link
-```
-
-Then you can run `skate` from anywhere.
-
-
-## Configuration
-
-Config is stored at `~/.skate/config.json` and auto-created on first run.
-
-```json
-{
-  "model": "llama3.2:3b",
-  "clips": 10,
-  "minLength": 20,
-  "maxLength": 90,
-  "subtitleStyle": "minimal",
-  "outputDir": "./output",
-  "cacheDir": "~/.skate/cache",
-  "ollamaUrl": "http://localhost:11434"
-}
-```
-
-### Options
-
-| Field           | Default                  | Description                                     |
-| --------------- | ------------------------ | ----------------------------------------------- |
-| `model`         | `llama3.2:3b`            | Ollama model for ranking                        |
-| `clips`         | `10`                     | Number of clips to produce                      |
-| `minLength`     | `20`                     | Minimum clip length (seconds)                   |
-| `maxLength`     | `90`                     | Maximum clip length (seconds)                   |
-| `subtitleStyle` | `minimal`                | Subtitle style (`minimal`, `tiktok`, `mrbeast`) |
-| `outputDir`     | `./output`               | Output directory                                |
-| `cacheDir`      | `~/.skate/cache`         | Cache directory                                 |
-| `ollamaUrl`     | `http://localhost:11434` | Ollama API URL                                  |
-
----
-
-## Output Structure
-
-```
-output/
-└── <video-name>/
-    ├── clips/
-    │   ├── clip-01.mp4
-    │   ├── clip-02.mp4
-    │   └── clip-03.mp4
-    ├── captions/
-    │   ├── clip-01.srt
-    │   └── clip-02.srt
-    └── metadata.json
-```
-
----
+1. **Input**: Enter a YouTube URL or select a local video file in the web interface.
+2. **Process**: The application will automatically download the video, transcribe the audio, and chunk it into potential clips.
+3. **Review**: Review the AI-ranked clips and choose the ones you want to finalize.
+4. **Edit**: Adjust the framing (pan/zoom) and choose your preferred subtitle style.
+5. **Render**: Click render to generate your final vertical shorts. Your rendered clips and subtitle files will be saved in the `output/` directory.
 
 
 
 ## Project Structure
 
-```
-skate/
-├── scripts/
-│   ├── face_detect.py         # OpenCV face detection
-│   ├── whisper_transcribe.py  # faster-whisper transcription
-│   └── requirements.txt       # Python dependencies
-├── src/
-│   ├── commands/
-│   │   ├── clip.ts            # Process local video
-│   │   ├── analyze.ts         # Analysis only pipeline
-│   │   ├── render.ts          # Render from cached analysis
-│   │   ├── watch.ts           # Watch directory mode
-│   │   └── doctor.ts          # Dependency checker
-│   ├── core/
-│   │   ├── pipeline.ts        # Main pipeline orchestrator
-│   │   ├── downloader.ts      # yt-dlp integration
-│   │   ├── transcriber.ts     # Whisper bridge
-│   │   ├── chunker.ts         # Transcript chunking
-│   │   ├── scorer.ts          # Heuristic scoring
-│   │   ├── ranker.ts          # AI ranking bridge
-│   │   ├── tracker.ts         # Face tracking
-│   │   ├── renderer.ts        # FFmpeg rendering
-│   │   └── subtitles.ts       # SRT/ASS generation
-│   ├── ai/
-│   │   ├── prompts.ts         # LLM prompt templates
-│   │   ├── ollama.ts          # Ollama API client
-│   │   └── ranking.ts         # AI ranking logic
-│   ├── vision/
-│   │   ├── face.ts            # Face detection
-│   │   ├── scene.ts           # Scene detection
-│   │   └── crop.ts            # Smart crop path
-│   ├── ui/
-│   │   └── tui.ts             # Terminal spinner UI
-│   ├── config.ts              # Configuration loader
-│   ├── types.ts               # TypeScript types
-│   └── index.tsx              # CLI entry point
-├── output/                    # Rendered clips
-├── cache/                     # Cached downloads
-├── models/                    # Local models
-├── temp/                      # Working files
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-
----
-
-## Pipeline Steps
-
-| Step            | Description                                                        |
-| --------------- | ------------------------------------------------------------------ |
-| **Download**    | Pulls video from YouTube via yt-dlp (or uses local file)           |
-| **Transcribe**  | Runs faster-whisper for speech-to-text with word-level timestamps  |
-| **Chunk**       | Splits transcript into 30–90 second natural segments               |
-| **Score**       | Heuristic scoring — speaking rate, emotion, story structure, hooks |
-| **Rank**        | Sends top candidates to Ollama for virality scoring                |
-| **Select**      | Picks best clips based on combined heuristic + AI scores           |
-| **Track Faces** | Detects faces per frame via OpenCV for smart vertical crop         |
-| **Render**      | Cuts clips, applies crop, burns in subtitles                       |
-
----
-
-## npm Scripts
-
-| Script                 | Command                                       |
-| ---------------------- | --------------------------------------------- |
-| `bun start`            | Run L2S                                     |
-| `bun run dev`          | Run with watch mode (auto-restart on changes) |
-| `bun run typecheck`    | TypeScript type checking                      |
-| `bun run setup-python` | Create venv and install Python deps           |
-
----
-
-## Caching
-
-L2S caches aggressively at `~/.skate/cache`:
-
-- Downloaded video/audio files
-- Transcripts
-- Face tracking data
-- Analysis results
-
-Re-running is fast — only changed steps are re-executed.
-
----
-
-## Why Build This?
-
-Every "AI shorts" tool out there charges $20–$50/month or requires API keys that bill per minute. L2S is:
-
-- **100% local** — nothing leaves your machine
-- **Free** — no subscriptions, no API costs
-- **Private** — your videos never hit a third-party server
-- **Customizable** — swap models, tweak prompts, adjust scoring
+- `src/server.js`: The main Express backend server.
+- `src/downloader.js`: Handles video downloading using yt-dlp.
+- `src/transcriber.js`: Interfaces with the Groq API or local Whisper script.
+- `src/ranker.js`: Interfaces with Ollama to intelligently rank clips.
+- `src/renderer.js`: Uses FFmpeg to apply crops and burn subtitles into the video.
+- `public/`: Contains the frontend web interface (`index.html`, `style.css`, `app.js`).
+- `output/`: Where your final rendered clips and captions are saved.
