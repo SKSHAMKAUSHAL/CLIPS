@@ -1,5 +1,7 @@
 # L2S (Long-to-Short) — AI-Powered YouTube → Viral Shorts (clipper) CLI
 
+
+
 > Turn long-form videos into viral-ready vertical shorts, entirely on your local machine. Free, no cloud restrictions.
 Saw a bunch of paid tools doing this — why pay when you can run it locally? L2S uses **faster-whisper** for transcription, **Ollama** for AI ranking, and **FFmpeg** for rendering with advanced manual framing control. Everything runs on your machine.
 
