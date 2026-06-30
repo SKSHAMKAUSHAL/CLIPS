@@ -1,0 +1,13 @@
+1. update the timestamp and atuo automatic generate option because id i click on the genrate d only timestamp clip but it genrate all the clips
+2. update the editing option and make it more user friendly like a new option of ratio of the video like 9:16,16:9,1:1 then by selecting the ratio we can set the video in that ratio and we edit that which is more comfortable to the user.
+
+3. make a automation of Instagram , youtube :
+- first connect the account with Instagram , youtube .
+- make a workflow according to the workflow for Instagram caption ,#tags and all  and for the youtube select title , description and #tags of the video . then select age of the audience.
+
+
+
+
+4. update the ui after render clips we have a option to edit and re-render that speacific clips and upadate the ui and all the things.
+
+5. before render we have a option of the edit while editing the video is playing does not have sound of the clip .

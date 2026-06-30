@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>L2S — AI YouTube to Viral Shorts</title>
+  <meta name="description" content="Turn long-form YouTube videos into viral-ready vertical shorts. Paste a link, pick a genre, get clips. 100% local, free, private." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Animated background -->
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-grid" aria-hidden="true"></div>
+
+  <!-- Toast container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <div class="app">
+    <!-- ─── Header ─────────────────────────────────── -->
+    <header id="app-header">
+      <div class="header-inner">
+        <div class="logo" id="logo">
+          <div class="logo-icon">
+            <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+              <rect width="32" height="32" rx="8" fill="url(#lg)"/>
+              <path d="M10 22L16 10L22 22" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="16" cy="18" r="2" fill="white"/>
+              <defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#8b5cf6"/><stop offset="1" stop-color="#06b6d4"/></linearGradient></defs>
+            </svg>
+          </div>
+          <span class="logo-text">L2S</span>
+          <span class="logo-badge">v2</span>
+        </div>
+        <nav class="header-nav">
+          <span class="status-dot" id="connection-dot"></span>
+          <span class="status-text" id="connection-text">Connecting...</span>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <!-- ─── Hero Section ───────────────────────────── -->
+      <section class="hero-section" id="hero-section">
+        <div class="hero-content">
+          <h1 class="hero-title">
+            Turn long-form videos into
+            <span class="gradient-text">viral shorts</span>
+          </h1>
+          <p class="hero-subtitle">Paste a YouTube link, pick a genre, get perfectly clipped vertical shorts with captions, descriptions & hashtags — powered by local AI, 100% free.</p>
+
+          <!-- Video Info Card (appears after URL paste) -->
+          <div class="video-info-card" id="video-info-card">
+            <img class="video-info-thumb" id="video-thumb" alt="" />
+            <div class="video-info-details">
+              <h3 class="video-info-title" id="video-title"></h3>
+              <div class="video-info-meta">
+                <span id="video-channel"></span>
+                <span class="meta-dot">•</span>
+                <span id="video-duration"></span>
+                <span class="meta-dot">•</span>
+                <span id="video-views"></span>
+              </div>
+            </div>
+            <button class="video-info-close" id="video-info-close" title="Clear">&times;</button>
+          </div>
+
+          <!-- Input Form -->
+          <form id="process-form" class="input-form">
+            <div class="input-wrapper" id="input-wrapper">
+              <div class="input-icon">
+                <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                  <path d="M10 18.333a8.333 8.333 0 1 0 0-16.667 8.333 8.333 0 0 0 0 16.667Z" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M8.333 12.5V7.5l4.167 2.5-4.167 2.5Z" fill="currentColor"/>
+                </svg>
+              </div>
+              <input type="text" id="source-input" placeholder="Paste YouTube URL here..." autocomplete="off" spellcheck="false" required />
+            </div>
+
+            <div class="form-row">
+              <div class="select-wrapper">
+                <select id="genre-select">
+                  <option value="auto">🎯 Auto-detect Genre</option>
+                  <option value="funny">😂 Funny / Comedy</option>
+                  <option value="educational">📚 Educational</option>
+                  <option value="motivational">💪 Motivational</option>
+                  <option value="tech">💻 Tech / Reviews</option>
+                  <option value="gaming">🎮 Gaming</option>
+                  <option value="storytime">📖 Storytime</option>
+                  <option value="news">📰 News</option>
+                  <option value="music">🎵 Music</option>
+                  <option value="sports">⚽ Sports</option>
+                  <option value="vlog">📹 Vlog</option>
+                  <option value="cooking">🍳 Cooking</option>
+                </select>
+              </div>
+              <button type="submit" id="generate-btn" class="btn-primary btn-generate">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M3.75 9h10.5M9 3.75v10.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                <span>Generate Clips</span>
+              </button>
+              <button type="button" id="stop-btn" class="btn-danger btn-stop">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><rect x="3" y="3" width="10" height="10" rx="2" fill="currentColor"/></svg>
+                <span>Stop</span>
+              </button>
+            </div>
+
+            <p class="input-hint" id="input-hint">Supports YouTube, YouTube Shorts & local file paths • 100% local • No API keys</p>
+
+            <!-- Advanced Options Toggle -->
+            <button type="button" class="advanced-options-toggle" id="adv-toggle">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3.5 5.25L7 8.75L10.5 5.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span>Advanced Options</span>
+            </button>
+
+            <!-- Advanced Options Panel -->
+            <div class="advanced-options-panel" id="adv-panel">
+              <div class="advanced-options-inner">
+                <!-- Description -->
+                <div>
+                  <div class="adv-section-label">📝 Description — find clips about...</div>
+                  <textarea class="adv-description-input" id="adv-description" placeholder="e.g. &quot;Find the funniest roast moments&quot; or &quot;Best motivational advice about discipline&quot;" rows="2"></textarea>
+                </div>
+
+                <!-- Timestamps -->
+                <div>
+                  <div class="adv-section-label">⏱️ Manual Timestamps (start – end ranges)</div>
+                  <div class="timestamp-rows" id="timestamp-rows">
+                    <div class="timestamp-row" data-ts-index="0">
+                      <input type="text" class="ts-start" placeholder="0:00" />
+                      <span class="timestamp-sep">→</span>
+                      <input type="text" class="ts-end" placeholder="0:30" />
+                      <button type="button" class="btn-remove-ts" title="Remove">×</button>
+                    </div>
+                  </div>
+                  <button type="button" class="btn-add-ts" id="btn-add-ts">+ Add Timestamp</button>
+                </div>
+
+                <!-- Clip Mode -->
+                <div>
+                  <div class="adv-section-label">🎯 How to use these</div>
+                  <div class="clip-mode-toggle">
+                    <label><input type="radio" name="clip-mode" value="add" checked /> Add to AI clips</label>
+                    <label><input type="radio" name="clip-mode" value="only" /> Only these clips</label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <!-- ─── Pipeline Progress ──────────────────────── -->
+      <section class="pipeline-section" id="pipeline-section">
+        <div class="section-header">
+          <h2>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="vertical-align:-3px;margin-right:6px"><path d="M10 18.333a8.333 8.333 0 100-16.666 8.333 8.333 0 000 16.666z" stroke="currentColor" stroke-width="1.5"/><path d="M10 5v5l3.333 1.667" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            Pipeline Progress
+          </h2>
+          <span class="pipeline-timer" id="pipeline-timer">00:00</span>
+        </div>
+
+        <div class="pipeline-steps" id="pipeline-steps">
+          <div class="step" data-step="download" id="step-download">
+            <div class="step-indicator">
+              <div class="step-icon">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 2.25v9m0 0l3-3m-3 3l-3-3M3.75 12.75v1.5a1.5 1.5 0 001.5 1.5h7.5a1.5 1.5 0 001.5-1.5v-1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <div class="step-pulse"></div>
+            </div>
+            <div class="step-content">
+              <span class="step-label">Download</span>
+              <span class="step-status">WAITING</span>
+            </div>
+          </div>
+          <div class="step-connector"></div>
+
+          <div class="step" data-step="transcribe" id="step-transcribe">
+            <div class="step-indicator">
+              <div class="step-icon">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 1.5v6m0 0a3 3 0 003-3M9 7.5a3 3 0 01-3-3M5.25 10.5A3.75 3.75 0 009 14.25a3.75 3.75 0 003.75-3.75M9 14.25V16.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <div class="step-pulse"></div>
+            </div>
+            <div class="step-content">
+              <span class="step-label">Transcribe</span>
+              <span class="step-status">WAITING</span>
+            </div>
+          </div>
+          <div class="step-connector"></div>
+
+          <div class="step" data-step="analyze" id="step-analyze">
+            <div class="step-indicator">
+              <div class="step-icon">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M6.75 9.75l1.5 1.5 3-3M9 16.5a7.5 7.5 0 110-15 7.5 7.5 0 010 15z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <div class="step-pulse"></div>
+            </div>
+            <div class="step-content">
+              <span class="step-label">Analyze & Score</span>
+              <span class="step-status">WAITING</span>
+            </div>
+          </div>
+          <div class="step-connector"></div>
+
+          <div class="step" data-step="rank" id="step-rank">
+            <div class="step-indicator">
+              <div class="step-icon">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M9 1.5l2.318 4.696 5.182.754-3.75 3.654.885 5.163L9 13.404l-4.635 2.363.885-5.163L1.5 6.95l5.182-.754L9 1.5z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <div class="step-pulse"></div>
+            </div>
+            <div class="step-content">
+              <span class="step-label">AI Rank</span>
+              <span class="step-status">WAITING</span>
+            </div>
+          </div>
+          <div class="step-connector"></div>
+
+          <div class="step" data-step="render" id="step-render">
+            <div class="step-indicator">
+              <div class="step-icon">
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2.25 9h1.5l1.5-4.5L7.5 13.5l2.25-6.75L12 12l1.5-3h2.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <div class="step-pulse"></div>
+            </div>
+            <div class="step-content">
+              <span class="step-label">Render Clips</span>
+              <span class="step-status">WAITING</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Terminal Log -->
+        <div class="terminal-card">
+          <div class="terminal-header">
+            <div class="terminal-dots"><span></span><span></span><span></span></div>
+            <span class="terminal-title">Pipeline Output</span>
+            <button id="clear-terminal" class="terminal-clear" title="Clear logs">
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M10.5 3.5l-7 7M3.5 3.5l7 7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <div class="terminal" id="terminal">
+            <div class="terminal-line terminal-muted">Waiting for pipeline to start...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ─── Review Section ─────────────────────────── -->
+      <section class="review-section" id="review-section">
+        <div class="section-header">
+          <div>
+            <h2>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="vertical-align:-3px;margin-right:6px"><path d="M4.167 2.5h11.666A1.667 1.667 0 0117.5 4.167v11.666a1.667 1.667 0 01-1.667 1.667H4.167A1.667 1.667 0 012.5 15.833V4.167A1.667 1.667 0 014.167 2.5z" stroke="currentColor" stroke-width="1.5"/><path d="M8.333 12.5V7.5l4.167 2.5-4.167 2.5z" fill="currentColor"/></svg>
+              Review Clips
+            </h2>
+            <p class="section-subtitle">AI found these viral moments. Select the ones you want to render into shorts.</p>
+          </div>
+          <div class="review-actions">
+            <button id="select-all-btn" class="btn-secondary btn-sm">Select All</button>
+            <button id="render-selected-btn" class="btn-primary btn-sm">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M2 8h2l1.5-3.5L8 11l2-5.5L11.5 10 13 7.5h1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Render Selected (<span id="selected-count">0</span>)
+            </button>
+          </div>
+        </div>
+        <div class="review-language" id="review-language"></div>
+        <div class="clip-grid" id="review-grid"></div>
+      </section>
+
+      <!-- ─── Results Section ────────────────────────── -->
+      <section class="results-section" id="results-section">
+        <div class="section-header">
+          <div>
+            <h2>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="vertical-align:-3px;margin-right:6px"><path d="M16.667 8.333v6.334A1.667 1.667 0 0115 16.333H5A1.667 1.667 0 013.333 14.667V5.333A1.667 1.667 0 015 3.667h6.333" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M6.667 10l2.5 2.5 5-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Your Viral Shorts
+            </h2>
+            <p class="section-subtitle">Ready to upload! Copy captions & hashtags or download clips.</p>
+          </div>
+          <div class="results-actions">
+            <button id="download-all-btn" class="btn-primary btn-sm">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l2.5-2.5M8 10L5.5 7.5M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Download All
+            </button>
+            <button id="new-video-btn" class="btn-secondary btn-sm">+ New Video</button>
+          </div>
+        </div>
+        <div id="results-list" class="results-list"></div>
+      </section>
+
+      <!-- ─── System Status ──────────────────────────── -->
+      <section class="status-section" id="status-section">
+        <div class="section-header">
+          <h2>System Status</h2>
+          <button id="recheck-deps" class="btn-secondary btn-sm">Re-check</button>
+        </div>
+        <div class="status-grid" id="status-grid">
+          <div class="status-card loading">
+            <span class="status-card-label">Checking dependencies...</span>
+          </div>
+        </div>
+        <p class="status-hint" id="status-hint"></p>
+      </section>
+    </main>
+
+    <!-- ─── Editor Modal ─────────────────────────────── -->
+    <div class="modal-overlay" id="editor-modal">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3 class="modal-title">Edit Clip Framing</h3>
+          <button class="modal-close" id="editor-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="editor-canvas-wrapper">
+            <div class="editor-canvas-container" id="editor-canvas-container">
+              <video id="editor-video" muted playsinline loop></video>
+            </div>
+          </div>
+          <div class="editor-controls">
+            <div class="control-section-label">✂️ Trim</div>
+            <div class="control-group">
+              <label>
+                <span>Clip Length</span>
+                <span id="editor-val-length">0s</span>
+              </label>
+              <div class="range-slider-wrap">
+                <input type="range" id="editor-start" min="0" max="100" value="0" step="0.1">
+                <input type="range" id="editor-end" min="0" max="100" value="100" step="0.1">
+              </div>
+            </div>
+            <div class="control-section-label">🔍 Transform</div>
+            <div class="control-group">
+              <label>
+                <span>Zoom Level</span>
+                <span id="editor-val-zoom">1.0x</span>
+              </label>
+              <input type="range" id="editor-zoom" min="0.1" max="3.0" value="1.0" step="0.1">
+            </div>
+            
+            <div class="control-section-label">🎨 Color & Filters</div>
+            <!-- Filters -->
+            <div class="control-group">
+              <label>
+                <span>Exposure</span>
+                <span id="editor-val-exposure">0.0</span>
+              </label>
+              <input type="range" id="editor-exposure" min="-1.0" max="1.0" value="0" step="0.05">
+            </div>
+            <div class="control-group">
+              <label>
+                <span>Contrast</span>
+                <span id="editor-val-contrast">1.0</span>
+              </label>
+              <input type="range" id="editor-contrast" min="0.0" max="2.0" value="1.0" step="0.05">
+            </div>
+            <div class="control-group">
+              <label>
+                <span>Saturation</span>
+                <span id="editor-val-saturation">1.0</span>
+              </label>
+              <input type="range" id="editor-saturation" min="0.0" max="3.0" value="1.0" step="0.1">
+            </div>
+            <div class="control-group">
+              <label>
+                <span>Sharpen</span>
+                <span id="editor-val-sharpen">0.0</span>
+              </label>
+              <input type="range" id="editor-sharpen" min="0.0" max="1.0" value="0.0" step="0.1">
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" id="editor-cancel">Cancel</button>
+          <button class="btn-primary" id="editor-save">Save Settings</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      <p>L2S v2 — 100% local, free, private. No data leaves your machine. Powered by Ollama + FFmpeg + yt-dlp</p>
+    </footer>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
