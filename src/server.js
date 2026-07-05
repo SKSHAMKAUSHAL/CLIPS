@@ -48,11 +48,25 @@ app.use('/temp', express.static(path.join(rootDir, 'temp')));
 // Serve raw video for the Live Editor
 app.get('/api/raw_video', (req, res) => {
   const state = getPipelineState();
-  if (!state || !state.videoPath || !fs.existsSync(state.videoPath)) {
+  let videoPath = state?.videoPath;
+
+  // Fallback: If server restarted and state is lost, find latest .mp4 in temp dir
+  if (!videoPath || !fs.existsSync(videoPath)) {
+    const tempDir = path.join(rootDir, 'temp');
+    if (fs.existsSync(tempDir)) {
+      const files = fs.readdirSync(tempDir).filter(f => f.endsWith('.mp4'));
+      if (files.length > 0) {
+        files.sort((a, b) => fs.statSync(path.join(tempDir, b)).mtimeMs - fs.statSync(path.join(tempDir, a)).mtimeMs);
+        videoPath = path.join(tempDir, files[0]);
+      }
+    }
+  }
+
+  if (!videoPath || !fs.existsSync(videoPath)) {
     return res.status(404).send('Raw video not available');
   }
   
-  const stat = fs.statSync(state.videoPath);
+  const stat = fs.statSync(videoPath);
   const fileSize = stat.size;
   const range = req.headers.range;
 
@@ -61,7 +75,7 @@ app.get('/api/raw_video', (req, res) => {
     const start = parseInt(parts[0], 10);
     const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
     const chunksize = (end - start) + 1;
-    const file = fs.createReadStream(state.videoPath, { start, end });
+    const file = fs.createReadStream(videoPath, { start, end });
     const head = {
       'Content-Range': `bytes ${start}-${end}/${fileSize}`,
       'Accept-Ranges': 'bytes',
@@ -76,7 +90,7 @@ app.get('/api/raw_video', (req, res) => {
       'Content-Type': 'video/mp4',
     };
     res.writeHead(200, head);
-    fs.createReadStream(state.videoPath).pipe(res);
+    fs.createReadStream(videoPath).pipe(res);
   }
 });
 
@@ -270,7 +284,7 @@ app.post('/api/render', async (req, res) => {
       throw new Error('No valid clips selected for rendering');
     }
 
-    broadcast({ type: 'log', level: 'info', msg: `🎞️  Rendering ${toRender.length} clips in 9:16 vertical format...` });
+    broadcast({ type: 'log', level: 'info', msg: `🎞️  Rendering ${toRender.length} clips...` });
 
     // Create output directory named after the video
     const videoName = path.basename(state.videoPath, path.extname(state.videoPath));
@@ -304,6 +318,134 @@ app.post('/api/render', async (req, res) => {
     broadcast({ type: 'step', step: 'render', status: 'error' });
     broadcast({ type: 'error', msg: `Render failed: ${err.message}` });
   }
+});
+
+/**
+ * POST /api/re-render — Re-render a single clip after editing
+ */
+app.post('/api/re-render', async (req, res) => {
+  const { clipIndex, clipData } = req.body;
+  const state = getPipelineState();
+
+  if (!state || !state.videoPath) {
+    return res.status(400).json({ error: 'No pipeline data. Run the pipeline first.' });
+  }
+
+  res.json({ success: true, message: 'Re-rendering clip...' });
+
+  try {
+    const videoName = path.basename(state.videoPath, path.extname(state.videoPath));
+    const outputDir = path.join(rootDir, 'output', videoName);
+    const clipsDir = path.join(outputDir, 'clips');
+    fs.mkdirSync(clipsDir, { recursive: true });
+
+    const clipNum = String(clipIndex + 1).padStart(2, '0');
+
+    // Build the clip object for rendering
+    const chunk = {
+      start: clipData.start || 0,
+      end: clipData.end || 0,
+      text: clipData.text || '',
+      words: clipData.words || [],
+    };
+
+    const toRender = [{
+      chunk,
+      custom: clipData,
+    }];
+
+    broadcast({ type: 'log', level: 'info', msg: `🔄 Re-rendering clip ${clipNum}...` });
+
+    await renderClips(state.videoPath, toRender, 'tiktok', outputDir, (msg) => {
+      broadcast({ type: 'log', level: 'info', msg: `  ${msg}` });
+    });
+
+    const fileUrl = `/output/${videoName}/clips/clip-01.mp4`;
+
+    // Rename the re-rendered file to the correct clip number
+    const renderedPath = path.join(clipsDir, 'clip-01.mp4');
+    const targetPath = path.join(clipsDir, `clip-${clipNum}.mp4`);
+    if (clipNum !== '01' && fs.existsSync(renderedPath)) {
+      fs.renameSync(renderedPath, targetPath);
+    }
+
+    const finalUrl = `/output/${videoName}/clips/clip-${clipNum}.mp4`;
+
+    broadcast({ type: 'log', level: 'success', msg: `✅ Clip ${clipNum} re-rendered!` });
+    broadcast({
+      type: 're_render_done',
+      clipIndex,
+      fileUrl: finalUrl,
+    });
+
+  } catch (err) {
+    broadcast({ type: 'error', msg: `Re-render failed: ${err.message}` });
+  }
+});
+
+/**
+ * POST /api/connect/:platform — Connect social media account (stub)
+ */
+app.post('/api/connect/:platform', (req, res) => {
+  const { platform } = req.params;
+
+  if (platform === 'instagram') {
+    const clientId = process.env.INSTAGRAM_CLIENT_ID;
+    const clientSecret = process.env.INSTAGRAM_CLIENT_SECRET;
+    if (clientId && clientSecret) {
+      const redirectUri = `http://localhost:${process.env.PORT || 3000}/api/auth/callback/instagram`;
+      const authUrl = `https://api.instagram.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user_profile,user_media&response_type=code`;
+      return res.json({ success: false, authUrl, message: 'Redirecting to Instagram login...' });
+    }
+    return res.json({ success: false, message: 'Instagram OAuth not configured. Add INSTAGRAM_CLIENT_ID and INSTAGRAM_CLIENT_SECRET to .env' });
+  }
+
+  if (platform === 'youtube') {
+    const clientId = process.env.YOUTUBE_CLIENT_ID;
+    const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
+    if (clientId && clientSecret) {
+      const redirectUri = `http://localhost:${process.env.PORT || 3000}/api/auth/callback/youtube`;
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent('https://www.googleapis.com/auth/youtube.upload')}&access_type=offline`;
+      return res.json({ success: false, authUrl, message: 'Redirecting to YouTube login...' });
+    }
+    return res.json({ success: false, message: 'YouTube OAuth not configured. Add YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET to .env' });
+  }
+
+  res.status(400).json({ error: `Unknown platform: ${platform}` });
+});
+
+/**
+ * GET /api/auth/callback/:platform — OAuth callback handler (stub)
+ */
+app.get('/api/auth/callback/:platform', (req, res) => {
+  const { platform } = req.params;
+  // TODO: Exchange code for tokens and store them
+  res.send(`<html><body><h2>Connected to ${platform}!</h2><p>You can close this window.</p><script>window.close()</script></body></html>`);
+});
+
+/**
+ * POST /api/publish — Publish clips to connected platforms (stub)
+ */
+app.post('/api/publish', (req, res) => {
+  const { clips, files, workflow } = req.body;
+
+  if (!clips || clips.length === 0) {
+    return res.status(400).json({ error: 'No clips to publish' });
+  }
+
+  const platforms = [];
+  if (workflow?.instagram) platforms.push('Instagram');
+  if (workflow?.youtube) platforms.push('YouTube');
+
+  broadcast({ type: 'log', level: 'info', msg: `📤 Publishing ${clips.length} clips to: ${platforms.join(', ')}` });
+  broadcast({ type: 'log', level: 'warning', msg: '⚠️ Social media publishing requires OAuth credentials in .env' });
+  broadcast({ type: 'log', level: 'info', msg: '💡 Add INSTAGRAM_CLIENT_ID, INSTAGRAM_CLIENT_SECRET, YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET to your .env file' });
+
+  res.json({
+    success: false,
+    message: `Publishing to ${platforms.join(' & ')} requires OAuth setup. Add API credentials to .env file.`,
+    published: 0,
+  });
 });
 
 // ─── Start Server ────────────────────────────────────

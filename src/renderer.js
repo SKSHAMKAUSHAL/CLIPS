@@ -65,15 +65,31 @@ async function cutClip(sourceFile, outputPath, start, end, assPath, customData =
   const exposure = getNum(customData.exposure, 0.0);
   const saturation = getNum(customData.saturation, 1.0);
   const sharpen = getNum(customData.sharpen, 0.0);
+  const aspectRatio = customData.aspectRatio || '9:16';
 
-  // 1. Zoom calculation (Base 9:16 vertical target size)
-  // Use min() to prevent crop dimensions from exceeding input dimensions
-  const cropW = `min(iw, ih*(9/16)/${zoom})`;
+  // Determine output dimensions and crop ratios based on aspect ratio
+  let outW, outH, cropRatioW, cropRatioH;
+  switch (aspectRatio) {
+    case '16:9':
+      outW = 1920; outH = 1080;
+      cropRatioW = 16; cropRatioH = 9;
+      break;
+    case '1:1':
+      outW = 1080; outH = 1080;
+      cropRatioW = 1; cropRatioH = 1;
+      break;
+    case '9:16':
+    default:
+      outW = 1080; outH = 1920;
+      cropRatioW = 9; cropRatioH = 16;
+      break;
+  }
+
+  // 1. Zoom calculation based on selected aspect ratio
+  const cropW = `min(iw, ih*(${cropRatioW}/${cropRatioH})/${zoom})`;
   const cropH = `min(ih, ih/${zoom})`;
 
   // 2. Pan calculation
-  // A movement of normPanX in the frontend equals normPanX * (ih/zoom) in the source video.
-  // Because the video moves RIGHT in the frontend, the camera/crop box moves LEFT in the source.
   const xExp = `(iw-${cropW})/2 - (${normPanX}*ih/${zoom})`;
   const yExp = `(ih-${cropH})/2 - (${normPanY}*ih/${zoom})`;
   
@@ -83,7 +99,7 @@ async function cutClip(sourceFile, outputPath, start, end, assPath, customData =
 
   const filterParts = [
     `crop='${cropW}':'${cropH}':'${xExp}':'${yExp}'`,
-    `scale=1080:1920`,
+    `scale=${outW}:${outH}`,
     `eq=brightness=${totalBright}:contrast=${contrast}:saturation=${saturation}${sharpenFilter}`
   ];
 

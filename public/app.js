@@ -70,12 +70,25 @@ const els = {
   editorValContrast: $('#editor-val-contrast'),
   editorValSaturation: $('#editor-val-saturation'),
   editorValSharpen: $('#editor-val-sharpen'),
+  editorValRatio: $('#editor-val-ratio'),
+  // Volume Controls
+  volumeToggle: $('#volume-toggle'),
+  volumeSlider: $('#volume-slider'),
+  // Ratio Selector
+  ratioSelector: $('#ratio-selector'),
   // Advanced Options
   advToggle: $('#adv-toggle'),
   advPanel: $('#adv-panel'),
   advDescription: $('#adv-description'),
   timestampRows: $('#timestamp-rows'),
   btnAddTs: $('#btn-add-ts'),
+  // Publish Section
+  publishSection: $('#publish-section'),
+  btnConnectIg: $('#btn-connect-ig'),
+  btnConnectYt: $('#btn-connect-yt'),
+  igStatus: $('#ig-status'),
+  ytStatus: $('#yt-status'),
+  btnPublish: $('#btn-publish'),
 };
 
 // ─── State ───────────────────────────────────
@@ -86,6 +99,8 @@ let pipelineTimerInterval = null;
 let pipelineStartTime = null;
 let detectedLanguage = 'unknown';
 let videoInfoTimeout = null;
+let currentEditorRatio = '9:16';
+let editorReRenderIndex = -1; // -1 = not re-rendering, >= 0 = re-rendering specific result
 
 // ─── WebSocket ───────────────────────────────
 let socket = null;
@@ -145,6 +160,28 @@ function handleMessage(data) {
       renderedFiles = data.files || [];
       showResultsSection(renderedFiles);
       break;
+
+    case 're_render_done': {
+      // Update 4: Single clip re-rendered
+      const { clipIndex, fileUrl } = data;
+      if (fileUrl && clipIndex >= 0) {
+        // Update the rendered file in our array
+        if (renderedFiles[clipIndex]) {
+          renderedFiles[clipIndex] = fileUrl;
+        }
+        // Update the result card video
+        const resultCard = els.resultsList.querySelector(`[data-result-index="${clipIndex}"]`);
+        if (resultCard) {
+          const videoEl = resultCard.querySelector('video');
+          if (videoEl) {
+            videoEl.src = `${fileUrl}?t=${Date.now()}`;
+          }
+        }
+        showToast(`Clip ${clipIndex + 1} re-rendered!`, 'success');
+        appendLog(`✅ Clip ${clipIndex + 1} re-rendered successfully`, 'success');
+      }
+      break;
+    }
 
     case 'done':
       stopTimer();
@@ -287,7 +324,15 @@ els.form.addEventListener('submit', async (e) => {
   // Collect advanced options
   const description = els.advDescription.value.trim();
   const timestamps = getTimestamps();
-  const clipMode = document.querySelector('input[name="clip-mode"]:checked')?.value || 'add';
+  
+  // Update 1: Auto-select 'only' mode when timestamps are provided
+  let clipMode = document.querySelector('input[name="clip-mode"]:checked')?.value || 'add';
+  if (timestamps.length > 0 && !description) {
+    // If only timestamps are given (no description), auto-switch to 'only' mode
+    clipMode = 'only';
+    const onlyRadio = document.querySelector('input[name="clip-mode"][value="only"]');
+    if (onlyRadio) onlyRadio.checked = true;
+  }
 
   // Reset UI
   setProcessingState(true);
@@ -295,6 +340,7 @@ els.form.addEventListener('submit', async (e) => {
   els.terminal.innerHTML = '';
   els.reviewSection.classList.remove('visible');
   els.resultsSection.classList.remove('visible');
+  els.publishSection.classList.remove('visible');
   els.pipelineSection.classList.add('visible');
   selectedClips.clear();
   allClips = [];
@@ -455,6 +501,7 @@ els.renderSelectedBtn.addEventListener('click', async () => {
 // ─── Results Section ─────────────────────────
 function showResultsSection(files) {
   els.resultsSection.classList.add('visible');
+  els.publishSection.classList.add('visible');
   els.resultsList.innerHTML = '';
 
   if (files.length === 0) {
@@ -479,6 +526,7 @@ function showResultsSection(files) {
 function createResultCard(clip, videoUrl, index) {
   const card = document.createElement('div');
   card.className = 'result-card';
+  card.setAttribute('data-result-index', index);
 
   const videoHtml = videoUrl
     ? `<video src="${videoUrl}?t=${Date.now()}" controls playsinline preload="metadata"></video>`
@@ -532,6 +580,10 @@ function createResultCard(clip, videoUrl, index) {
       </div>
 
       <div class="result-actions">
+        <button class="btn-edit-rerender" data-result-index="${index}">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M11.5 1.5l3 3L5 14H2v-3l9.5-9.5z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Edit & Re-render
+        </button>
         ${videoUrl
           ? `<a href="${videoUrl}" download="skate-clip-${index + 1}.mp4" class="btn-download">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l2.5-2.5M8 10L5.5 7.5M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -551,6 +603,20 @@ function createResultCard(clip, videoUrl, index) {
       copyToClipboard(text, btn);
     });
   });
+
+  // Attach edit & re-render handler
+  const editBtn = card.querySelector('.btn-edit-rerender');
+  if (editBtn) {
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const resultIdx = parseInt(editBtn.getAttribute('data-result-index'), 10);
+      editorReRenderIndex = resultIdx;
+      // Find the matching clip in allClips
+      const selectedArr = Array.from(selectedClips);
+      const clipIndex = selectedArr[resultIdx] ?? resultIdx;
+      openEditor(clipIndex);
+    });
+  }
 
   return card;
 }
@@ -579,6 +645,7 @@ els.newVideoBtn.addEventListener('click', () => {
   els.pipelineSection.classList.remove('visible');
   els.reviewSection.classList.remove('visible');
   els.resultsSection.classList.remove('visible');
+  els.publishSection.classList.remove('visible');
   els.terminal.innerHTML = '<div class="terminal-line terminal-muted">Ready for a new video...</div>';
   resetSteps();
   selectedClips.clear();
@@ -729,6 +796,7 @@ function openEditor(index) {
   currentClipData.exposure = currentClipData.exposure ?? 0.0;
   currentClipData.saturation = currentClipData.saturation ?? 1.0;
   currentClipData.sharpen = currentClipData.sharpen ?? 0.0;
+  currentClipData.aspectRatio = currentClipData.aspectRatio ?? '9:16';
 
   els.editorStart.min = 0;
   els.editorStart.max = currentClipData.end + 10;
@@ -744,13 +812,20 @@ function openEditor(index) {
   els.editorSaturation.value = currentClipData.saturation;
   els.editorSharpen.value = currentClipData.sharpen;
 
-  els.editorVideo.src = '/api/raw_video';
-  els.editorVideo.currentTime = start;
-  els.editorVideo.play().catch(() => {});
+  // Set aspect ratio
+  currentEditorRatio = currentClipData.aspectRatio;
+  setEditorRatio(currentEditorRatio);
 
-  updateEditorLabels();
-  
-  els.editorVideo.addEventListener('loadedmetadata', updateEditorLabels, { once: true });
+  // Enable audio (Update 5)
+  els.editorVideo.src = '/api/raw_video';
+  els.editorVideo.volume = parseFloat(els.volumeSlider.value);
+  els.editorVideo.muted = false;
+
+  els.editorVideo.addEventListener('loadedmetadata', () => {
+    els.editorVideo.currentTime = start;
+    updateEditorLabels();
+    els.editorVideo.play().catch(err => console.warn('Autoplay prevented:', err));
+  }, { once: true });
 
   els.editorModal.classList.add("visible");
 }
@@ -761,7 +836,63 @@ function closeEditor() {
   els.editorVideo.removeAttribute('src');
   editingClipIndex = -1;
   currentClipData = null;
+  editorReRenderIndex = -1;
 }
+
+// ─── Aspect Ratio Logic ─────────────────────
+function setEditorRatio(ratio) {
+  currentEditorRatio = ratio;
+  
+  // Update button states
+  els.ratioSelector.querySelectorAll('.ratio-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.getAttribute('data-ratio') === ratio);
+  });
+
+  // Update canvas container aspect ratio
+  const ratioMap = {
+    '9:16': '9/16',
+    '16:9': '16/9',
+    '1:1': '1/1',
+  };
+  els.editorCanvasContainer.style.aspectRatio = ratioMap[ratio] || '9/16';
+  
+  // Update label
+  if (els.editorValRatio) {
+    els.editorValRatio.textContent = ratio;
+  }
+}
+
+// Ratio selector click handlers
+els.ratioSelector.querySelectorAll('.ratio-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const ratio = btn.getAttribute('data-ratio');
+    setEditorRatio(ratio);
+  });
+});
+
+// ─── Volume Controls ────────────────────────
+els.volumeToggle.addEventListener('click', () => {
+  const vid = els.editorVideo;
+  vid.muted = !vid.muted;
+  const iconOn = els.volumeToggle.querySelector('.vol-icon-on');
+  const iconOff = els.volumeToggle.querySelector('.vol-icon-off');
+  if (vid.muted) {
+    iconOn.style.display = 'none';
+    iconOff.style.display = 'block';
+  } else {
+    iconOn.style.display = 'block';
+    iconOff.style.display = 'none';
+  }
+});
+
+els.volumeSlider.addEventListener('input', () => {
+  els.editorVideo.volume = parseFloat(els.volumeSlider.value);
+  if (els.editorVideo.muted && parseFloat(els.volumeSlider.value) > 0) {
+    els.editorVideo.muted = false;
+    els.volumeToggle.querySelector('.vol-icon-on').style.display = 'block';
+    els.volumeToggle.querySelector('.vol-icon-off').style.display = 'none';
+  }
+});
 
 function updateEditorLabels() {
   if (!currentClipData) return;
@@ -841,7 +972,7 @@ els.editorStart.addEventListener('input', () => {
 els.editorCloseBtn.addEventListener("click", closeEditor);
 els.editorCancelBtn.addEventListener("click", closeEditor);
 
-els.editorSaveBtn.addEventListener("click", () => {
+els.editorSaveBtn.addEventListener("click", async () => {
   if (editingClipIndex >= 0 && currentClipData) {
     const start = parseFloat(els.editorStart.value);
     const end = parseFloat(els.editorEnd.value);
@@ -866,15 +997,38 @@ els.editorSaveBtn.addEventListener("click", () => {
     allClips[editingClipIndex].exposure = parseFloat(els.editorExposure.value);
     allClips[editingClipIndex].saturation = parseFloat(els.editorSaturation.value);
     allClips[editingClipIndex].sharpen = parseFloat(els.editorSharpen.value);
+    allClips[editingClipIndex].aspectRatio = currentEditorRatio;
     
     const cards = els.reviewGrid.querySelectorAll(".clip-card");
     if (cards[editingClipIndex]) {
       const durBadge = cards[editingClipIndex].querySelector(".badge-duration");
       if (durBadge) durBadge.textContent = `${allClips[editingClipIndex].duration}s`;
     }
-    
-    showToast("Clip settings saved!", "success");
-    closeEditor();
+
+    // Update 4: If opened from results (re-render mode), trigger single clip re-render
+    if (editorReRenderIndex >= 0) {
+      const reRenderIdx = editorReRenderIndex;
+      showToast("Re-rendering clip...", "info");
+      closeEditor();
+      
+      try {
+        const clipData = allClips[editingClipIndex];
+        const res = await fetch('/api/re-render', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clipIndex: reRenderIdx, clipData }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Re-render failed');
+        // Response handled via WebSocket 're_render_done' message
+      } catch (err) {
+        appendLog(`Re-render failed: ${err.message}`, 'error');
+        showToast('Re-render failed', 'error');
+      }
+    } else {
+      showToast("Clip settings saved!", "success");
+      closeEditor();
+    }
   }
 });
 
@@ -948,3 +1102,126 @@ function bindRemoveBtn(btn) {
 // Bind existing remove buttons
 els.timestampRows.querySelectorAll('.btn-remove-ts').forEach(bindRemoveBtn);
 
+// ─── Publish Section Logic ───────────────────
+let platformConnections = { instagram: false, youtube: false };
+
+function updatePublishButton() {
+  const anyConnected = platformConnections.instagram || platformConnections.youtube;
+  const hasFiles = renderedFiles.length > 0 || selectedClips.size > 0;
+  els.btnPublish.disabled = !(anyConnected && hasFiles);
+}
+
+// Instagram Connect
+els.btnConnectIg.addEventListener('click', async () => {
+  if (platformConnections.instagram) {
+    // Disconnect
+    platformConnections.instagram = false;
+    els.igStatus.textContent = 'Not Connected';
+    els.igStatus.classList.remove('connected');
+    els.btnConnectIg.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Connect`;
+    els.btnConnectIg.classList.remove('connected');
+    showToast('Instagram disconnected', 'info');
+  } else {
+    try {
+      const res = await fetch('/api/connect/instagram', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        platformConnections.instagram = true;
+        els.igStatus.textContent = 'Connected';
+        els.igStatus.classList.add('connected');
+        els.btnConnectIg.innerHTML = `✓ Connected`;
+        els.btnConnectIg.classList.add('connected');
+        showToast('Instagram connected!', 'success');
+      } else if (data.authUrl) {
+        window.open(data.authUrl, '_blank', 'width=600,height=700');
+        showToast('Complete login in the popup window', 'info');
+      } else {
+        showToast(data.message || 'OAuth not configured yet', 'warning');
+      }
+    } catch (err) {
+      showToast('Failed to connect Instagram', 'error');
+    }
+  }
+  updatePublishButton();
+});
+
+// YouTube Connect
+els.btnConnectYt.addEventListener('click', async () => {
+  if (platformConnections.youtube) {
+    // Disconnect
+    platformConnections.youtube = false;
+    els.ytStatus.textContent = 'Not Connected';
+    els.ytStatus.classList.remove('connected');
+    els.btnConnectYt.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Connect`;
+    els.btnConnectYt.classList.remove('connected');
+    showToast('YouTube disconnected', 'info');
+  } else {
+    try {
+      const res = await fetch('/api/connect/youtube', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        platformConnections.youtube = true;
+        els.ytStatus.textContent = 'Connected';
+        els.ytStatus.classList.add('connected');
+        els.btnConnectYt.innerHTML = `✓ Connected`;
+        els.btnConnectYt.classList.add('connected');
+        showToast('YouTube connected!', 'success');
+      } else if (data.authUrl) {
+        window.open(data.authUrl, '_blank', 'width=600,height=700');
+        showToast('Complete login in the popup window', 'info');
+      } else {
+        showToast(data.message || 'OAuth not configured yet', 'warning');
+      }
+    } catch (err) {
+      showToast('Failed to connect YouTube', 'error');
+    }
+  }
+  updatePublishButton();
+});
+
+// Publish clips
+els.btnPublish.addEventListener('click', async () => {
+  if (els.btnPublish.disabled) return;
+  els.btnPublish.disabled = true;
+  els.btnPublish.classList.add('loading');
+
+  const workflow = {
+    instagram: platformConnections.instagram ? {
+      caption: $('#ig-caption')?.value || '',
+      hashtags: $('#ig-hashtags')?.value || '',
+    } : null,
+    youtube: platformConnections.youtube ? {
+      title: $('#yt-title')?.value || '',
+      description: $('#yt-description')?.value || '',
+      tags: $('#yt-tags')?.value || '',
+      audience: $('#yt-audience')?.value || 'all',
+      visibility: $('#yt-visibility')?.value || 'public',
+    } : null,
+  };
+
+  try {
+    const selectedArr = Array.from(selectedClips).map(i => allClips[i]).filter(Boolean);
+    const res = await fetch('/api/publish', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clips: selectedArr,
+        files: renderedFiles,
+        workflow,
+      }),
+    });
+
+    const data = await res.json();
+    if (data.success) {
+      showToast(`Published ${data.published || 0} clips!`, 'success');
+    } else {
+      showToast(data.message || 'Publish failed', 'error');
+    }
+  } catch (err) {
+    showToast('Publish failed: ' + err.message, 'error');
+  } finally {
+    els.btnPublish.disabled = false;
+    els.btnPublish.classList.remove('loading');
+    updatePublishButton();
+  }
+});
