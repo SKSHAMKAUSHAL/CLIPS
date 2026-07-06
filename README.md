@@ -5,6 +5,8 @@ Saw a bunch of paid tools doing this — why pay when you can run it locally? L2
 
 
 
+
+
 L2S is a local web application that turns long-form videos into viral-ready vertical shorts. 
 It runs a Node.js Express server and provides a web UI to process videos locally on your machine, eliminating the need for expensive cloud subscriptions.
 
