@@ -12,6 +12,13 @@ import { runPipeline, stopPipeline, getPipelineState } from './pipeline.js';
 import { runDemoPipeline } from './demo.js';
 import { checkDependencies } from './doctor.js';
 import { renderClips } from './renderer.js';
+import {
+  getYouTubeAuthUrl, exchangeYouTubeCode,
+  getInstagramAuthUrl, exchangeInstagramCode,
+  getConnectionStatus, getCredentialStatus,
+  disconnectPlatform,
+} from './auth.js';
+import { publishClips } from './uploader.js';
 
 // ─── Load .env manually (no extra dependency) ────────
 const __filename = fileURLToPath(import.meta.url);
@@ -384,69 +391,161 @@ app.post('/api/re-render', async (req, res) => {
 });
 
 /**
- * POST /api/connect/:platform — Connect social media account (stub)
+ * GET /api/connection-status — Check social media connection status
+ */
+app.get('/api/connection-status', (req, res) => {
+  const connections = getConnectionStatus();
+  const credentials = getCredentialStatus();
+  res.json({ connections, credentials });
+});
+
+/**
+ * POST /api/connect/:platform — Start OAuth flow for a platform
  */
 app.post('/api/connect/:platform', (req, res) => {
   const { platform } = req.params;
-
-  if (platform === 'instagram') {
-    const clientId = process.env.INSTAGRAM_CLIENT_ID;
-    const clientSecret = process.env.INSTAGRAM_CLIENT_SECRET;
-    if (clientId && clientSecret) {
-      const redirectUri = `http://localhost:${process.env.PORT || 3000}/api/auth/callback/instagram`;
-      const authUrl = `https://api.instagram.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=user_profile,user_media&response_type=code`;
-      return res.json({ success: false, authUrl, message: 'Redirecting to Instagram login...' });
-    }
-    return res.json({ success: false, message: 'Instagram OAuth not configured. Add INSTAGRAM_CLIENT_ID and INSTAGRAM_CLIENT_SECRET to .env' });
-  }
+  const port = process.env.PORT || 3000;
 
   if (platform === 'youtube') {
-    const clientId = process.env.YOUTUBE_CLIENT_ID;
-    const clientSecret = process.env.YOUTUBE_CLIENT_SECRET;
-    if (clientId && clientSecret) {
-      const redirectUri = `http://localhost:${process.env.PORT || 3000}/api/auth/callback/youtube`;
-      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent('https://www.googleapis.com/auth/youtube.upload')}&access_type=offline`;
-      return res.json({ success: false, authUrl, message: 'Redirecting to YouTube login...' });
+    const redirectUri = `http://localhost:${port}/api/auth/callback/youtube`;
+    const authUrl = getYouTubeAuthUrl(redirectUri);
+    if (!authUrl) {
+      return res.json({
+        success: false,
+        needsSetup: true,
+        message: 'YouTube OAuth not configured. Add YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET to your .env file.',
+      });
     }
-    return res.json({ success: false, message: 'YouTube OAuth not configured. Add YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET to .env' });
+    return res.json({ success: false, authUrl, message: 'Redirecting to Google login...' });
+  }
+
+  if (platform === 'instagram') {
+    const redirectUri = `http://localhost:${port}/api/auth/callback/instagram`;
+    const authUrl = getInstagramAuthUrl(redirectUri);
+    if (!authUrl) {
+      return res.json({
+        success: false,
+        needsSetup: true,
+        message: 'Instagram OAuth not configured. Add INSTAGRAM_APP_ID and INSTAGRAM_APP_SECRET to your .env file.',
+      });
+    }
+    return res.json({ success: false, authUrl, message: 'Redirecting to Facebook login...' });
   }
 
   res.status(400).json({ error: `Unknown platform: ${platform}` });
 });
 
 /**
- * GET /api/auth/callback/:platform — OAuth callback handler (stub)
+ * GET /api/auth/callback/youtube — YouTube OAuth callback
  */
-app.get('/api/auth/callback/:platform', (req, res) => {
-  const { platform } = req.params;
-  // TODO: Exchange code for tokens and store them
-  res.send(`<html><body><h2>Connected to ${platform}!</h2><p>You can close this window.</p><script>window.close()</script></body></html>`);
+app.get('/api/auth/callback/youtube', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.send(authResultPage('YouTube', false, error || 'No authorization code received'));
+  }
+  try {
+    const port = process.env.PORT || 3000;
+    const redirectUri = `http://localhost:${port}/api/auth/callback/youtube`;
+    const tokenData = await exchangeYouTubeCode(code, redirectUri);
+    broadcast({ type: 'log', level: 'success', msg: `✅ YouTube connected as: ${tokenData.username}` });
+    broadcast({ type: 'connection_update', platform: 'youtube', connected: true, username: tokenData.username });
+    res.send(authResultPage('YouTube', true, null, tokenData.username));
+  } catch (e) {
+    broadcast({ type: 'log', level: 'error', msg: `❌ YouTube auth failed: ${e.message}` });
+    res.send(authResultPage('YouTube', false, e.message));
+  }
 });
 
 /**
- * POST /api/publish — Publish clips to connected platforms (stub)
+ * GET /api/auth/callback/instagram — Instagram OAuth callback
  */
-app.post('/api/publish', (req, res) => {
-  const { clips, files, workflow } = req.body;
+app.get('/api/auth/callback/instagram', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.send(authResultPage('Instagram', false, error || 'No authorization code received'));
+  }
+  try {
+    const port = process.env.PORT || 3000;
+    const redirectUri = `http://localhost:${port}/api/auth/callback/instagram`;
+    const tokenData = await exchangeInstagramCode(code, redirectUri);
+    broadcast({ type: 'log', level: 'success', msg: `✅ Instagram connected as: ${tokenData.username}` });
+    broadcast({ type: 'connection_update', platform: 'instagram', connected: true, username: tokenData.username });
+    res.send(authResultPage('Instagram', true, null, tokenData.username));
+  } catch (e) {
+    broadcast({ type: 'log', level: 'error', msg: `❌ Instagram auth failed: ${e.message}` });
+    res.send(authResultPage('Instagram', false, e.message));
+  }
+});
 
+/**
+ * POST /api/disconnect/:platform — Disconnect a platform
+ */
+app.post('/api/disconnect/:platform', (req, res) => {
+  const { platform } = req.params;
+  disconnectPlatform(platform);
+  broadcast({ type: 'connection_update', platform, connected: false });
+  broadcast({ type: 'log', level: 'info', msg: `🔌 ${platform} disconnected` });
+  res.json({ success: true });
+});
+
+/**
+ * POST /api/publish — Publish clips to connected platforms
+ */
+app.post('/api/publish', async (req, res) => {
+  const { clips, files, workflow } = req.body;
   if (!clips || clips.length === 0) {
     return res.status(400).json({ error: 'No clips to publish' });
   }
 
+  const connections = getConnectionStatus();
   const platforms = [];
-  if (workflow?.instagram) platforms.push('Instagram');
-  if (workflow?.youtube) platforms.push('YouTube');
+  if (workflow?.youtube && connections.youtube.connected) platforms.push('YouTube');
+  if (workflow?.instagram && connections.instagram.connected) platforms.push('Instagram');
 
-  broadcast({ type: 'log', level: 'info', msg: `📤 Publishing ${clips.length} clips to: ${platforms.join(', ')}` });
-  broadcast({ type: 'log', level: 'warning', msg: '⚠️ Social media publishing requires OAuth credentials in .env' });
-  broadcast({ type: 'log', level: 'info', msg: '💡 Add INSTAGRAM_CLIENT_ID, INSTAGRAM_CLIENT_SECRET, YOUTUBE_CLIENT_ID, YOUTUBE_CLIENT_SECRET to your .env file' });
+  if (platforms.length === 0) {
+    return res.json({
+      success: false,
+      message: 'No connected platforms. Connect YouTube or Instagram first.',
+      published: 0,
+    });
+  }
 
-  res.json({
-    success: false,
-    message: `Publishing to ${platforms.join(' & ')} requires OAuth setup. Add API credentials to .env file.`,
-    published: 0,
-  });
+  res.json({ success: true, message: `Publishing to ${platforms.join(' & ')}...` });
+
+  const activeWorkflow = {
+    youtube: (workflow?.youtube && connections.youtube.connected) ? workflow.youtube : null,
+    instagram: (workflow?.instagram && connections.instagram.connected) ? workflow.instagram : null,
+  };
+
+  try {
+    const result = await publishClips(clips, files, activeWorkflow, rootDir, broadcast);
+    broadcast({ type: 'publish_done', results: result.results, summary: result.summary });
+  } catch (err) {
+    broadcast({ type: 'log', level: 'error', msg: `❌ Publish error: ${err.message}` });
+    broadcast({ type: 'publish_done', results: [], summary: { total: 0, success: 0, failed: clips.length } });
+  }
 });
+
+/** Generate HTML page for OAuth callback result */
+function authResultPage(platform, success, error, username) {
+  const emoji = success ? '✅' : '❌';
+  const msg = success
+    ? `Connected to ${platform} as ${username || 'User'}!`
+    : `Failed to connect ${platform}: ${error || 'Unknown error'}`;
+  const bg = success ? '#0a2e1a' : '#2e0a0a';
+  const border = success ? '#10b981' : '#ef4444';
+  const glow = success ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)';
+  const usernameJs = username ? `'${username.replace(/'/g, "\\'")}'` : 'null';
+  const errorJs = error ? `'${error.replace(/'/g, "\\'")}'` : 'null';
+
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${platform} — ${success ? 'Connected' : 'Error'}</title>
+<style>body{background:#06060a;color:#f0f0f5;font-family:'Inter',-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
+.card{background:${bg};border:1px solid ${border};border-radius:16px;padding:40px;text-align:center;max-width:400px;box-shadow:0 0 30px ${glow}}
+.emoji{font-size:3rem;margin-bottom:16px}h2{margin:0 0 8px;font-size:1.3rem}p{color:#8a8a9e;font-size:0.9rem;margin:0}</style></head>
+<body><div class="card"><div class="emoji">${emoji}</div><h2>${msg}</h2><p>This window will close automatically...</p></div>
+<script>if(window.opener){window.opener.postMessage({type:'oauth_callback',platform:'${platform.toLowerCase()}',success:${success},username:${usernameJs},error:${errorJs}},'*')}
+setTimeout(()=>window.close(),2000)</script></body></html>`;
+}
 
 // ─── Start Server ────────────────────────────────────
 const PORT = process.env.PORT || 3000;

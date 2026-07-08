@@ -295,10 +295,48 @@
         <div class="section-header">
           <div>
             <h2>
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="vertical-align:-3px;margin-right:6px"><path d="M3.333 10h13.334M10 3.333v13.334" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="vertical-align:-3px;margin-right:6px"><path d="M14 2L6.5 9.5M14 2l-4.5 12-2-4.5L3 7l11-5z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               Publish to Social Media
             </h2>
-            <p class="section-subtitle">Connect your accounts and auto-publish your clips with optimized captions, hashtags & settings.</p>
+            <p class="section-subtitle">Connect your accounts and auto-publish clips with optimized captions, hashtags & settings.</p>
+          </div>
+        </div>
+
+        <!-- Setup Guide (Expandable) -->
+        <div class="setup-guide" id="setup-guide">
+          <button type="button" class="setup-guide-toggle" id="setup-guide-toggle">
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M3.5 5.25L7 8.75L10.5 5.25" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span>🔑 Setup Guide — How to get OAuth credentials</span>
+          </button>
+          <div class="setup-guide-panel" id="setup-guide-panel">
+            <div class="setup-guide-inner">
+              <div class="setup-platform-guide">
+                <div class="setup-platform-badge youtube-badge">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M22.54 6.42a2.78 2.78 0 00-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 00-1.94 2A29.94 29.94 0 001 12a29.94 29.94 0 00.46 5.58 2.78 2.78 0 001.94 2c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 001.94-2A29.94 29.94 0 0023 12a29.94 29.94 0 00-.46-5.58z" stroke="currentColor" stroke-width="1.5"/><path d="M9.75 15.02l5.75-3.27-5.75-3.27v6.54z" fill="currentColor"/></svg>
+                  YouTube Shorts
+                </div>
+                <ol class="setup-steps">
+                  <li>Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">Google Cloud Console</a></li>
+                  <li>Create a project → Enable <strong>YouTube Data API v3</strong></li>
+                  <li>Go to Credentials → Create <strong>OAuth 2.0 Client ID</strong> (Web Application)</li>
+                  <li>Add redirect URI: <code>http://localhost:3000/api/auth/callback/youtube</code></li>
+                  <li>Copy Client ID & Secret into your <code>.env</code> file</li>
+                </ol>
+              </div>
+              <div class="setup-platform-guide">
+                <div class="setup-platform-badge instagram-badge">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="5" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor"/></svg>
+                  Instagram Reels
+                </div>
+                <ol class="setup-steps">
+                  <li>Go to <a href="https://developers.facebook.com/" target="_blank" rel="noopener">Meta Developer Portal</a></li>
+                  <li>Create an App → Add <strong>Instagram Graph API</strong> product</li>
+                  <li>Add redirect URI: <code>http://localhost:3000/api/auth/callback/instagram</code></li>
+                  <li>Copy App ID & Secret into your <code>.env</code> file</li>
+                  <li>⚠️ Requires an Instagram <strong>Business/Creator</strong> account linked to a Facebook Page</li>
+                </ol>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -321,11 +359,17 @@
             </div>
             <div class="platform-workflow" id="ig-workflow">
               <div class="workflow-field">
-                <label>Caption Template</label>
-                <textarea id="ig-caption" placeholder="{caption}\n\n{hashtags}\n\n🔥 Follow for more!" rows="3"></textarea>
+                <div class="workflow-label-row">
+                  <label>Caption Template</label>
+                  <button class="btn-autofill" id="btn-autofill-ig-caption" title="Auto-fill with AI content">🤖 AI Fill</button>
+                </div>
+                <textarea id="ig-caption" placeholder="{caption}&#10;&#10;{hashtags}&#10;&#10;🔥 Follow for more!" rows="3"></textarea>
               </div>
               <div class="workflow-field">
-                <label>Extra Hashtags</label>
+                <div class="workflow-label-row">
+                  <label>Extra Hashtags</label>
+                  <button class="btn-autofill" id="btn-autofill-ig-tags" title="Auto-fill with AI hashtags">🤖 AI Fill</button>
+                </div>
                 <input type="text" id="ig-hashtags" placeholder="#reels #instagram #viral" />
               </div>
             </div>
@@ -348,15 +392,24 @@
             </div>
             <div class="platform-workflow" id="yt-workflow">
               <div class="workflow-field">
-                <label>Title Template</label>
+                <div class="workflow-label-row">
+                  <label>Title Template</label>
+                  <button class="btn-autofill" id="btn-autofill-yt-title" title="Auto-fill with AI title">🤖 AI Fill</button>
+                </div>
                 <input type="text" id="yt-title" placeholder="{title} #Shorts" />
               </div>
               <div class="workflow-field">
-                <label>Description Template</label>
-                <textarea id="yt-description" placeholder="{description}\n\n{hashtags}\n\n📌 Subscribe for more content!" rows="3"></textarea>
+                <div class="workflow-label-row">
+                  <label>Description Template</label>
+                  <button class="btn-autofill" id="btn-autofill-yt-desc" title="Auto-fill with AI description">🤖 AI Fill</button>
+                </div>
+                <textarea id="yt-description" placeholder="{description}&#10;&#10;{hashtags}&#10;&#10;📌 Subscribe for more content!" rows="3"></textarea>
               </div>
               <div class="workflow-field">
-                <label>Tags</label>
+                <div class="workflow-label-row">
+                  <label>Tags</label>
+                  <button class="btn-autofill" id="btn-autofill-yt-tags" title="Auto-fill with AI tags">🤖 AI Fill</button>
+                </div>
                 <input type="text" id="yt-tags" placeholder="shorts, viral, trending" />
               </div>
               <div class="workflow-row">
@@ -380,6 +433,9 @@
             </div>
           </div>
         </div>
+
+        <!-- Publish Progress -->
+        <div class="publish-progress" id="publish-progress"></div>
 
         <!-- Publish Button -->
         <div class="publish-actions">

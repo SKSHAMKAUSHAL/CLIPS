@@ -202,6 +202,40 @@ function handleMessage(data) {
       if (data.step) updateStep(data.step, 'error');
       showToast('Pipeline error occurred', 'error');
       break;
+
+    case 'connection_update': {
+      // Real-time OAuth connection updates from server
+      const { platform, connected, username } = data;
+      if (connected) {
+        setPlatformConnected(platform, username);
+      } else {
+        setPlatformDisconnected(platform);
+      }
+      break;
+    }
+
+    case 'publish_progress': {
+      // Per-clip upload progress
+      const { clipIndex, total, status, result } = data;
+      updatePublishProgress(clipIndex, total, status, result);
+      break;
+    }
+
+    case 'publish_done': {
+      // Publishing finished
+      const { summary } = data;
+      els.btnPublish.disabled = false;
+      els.btnPublish.classList.remove('loading');
+      updatePublishButton();
+      if (summary) {
+        if (summary.success > 0) {
+          showToast(`Published ${summary.success} clip(s) successfully!`, 'success');
+        } else {
+          showToast(`Publishing completed with ${summary.failed} failure(s)`, 'error');
+        }
+      }
+      break;
+    }
   }
 }
 
@@ -1105,95 +1139,289 @@ els.timestampRows.querySelectorAll('.btn-remove-ts').forEach(bindRemoveBtn);
 // ─── Publish Section Logic ───────────────────
 let platformConnections = { instagram: false, youtube: false };
 
+// ─── Setup Guide Toggle ─────────────────────
+const setupGuideToggle = $('#setup-guide-toggle');
+const setupGuidePanel = $('#setup-guide-panel');
+if (setupGuideToggle && setupGuidePanel) {
+  setupGuideToggle.addEventListener('click', () => {
+    setupGuideToggle.classList.toggle('open');
+    setupGuidePanel.classList.toggle('open');
+  });
+}
+
+// ─── Connection Status ──────────────────────
+async function checkConnectionStatus() {
+  try {
+    const res = await fetch('/api/connection-status');
+    const data = await res.json();
+
+    if (data.connections) {
+      if (data.connections.youtube?.connected) {
+        setPlatformConnected('youtube', data.connections.youtube.username);
+      }
+      if (data.connections.instagram?.connected) {
+        setPlatformConnected('instagram', data.connections.instagram.username);
+      }
+    }
+  } catch (e) {
+    // Server not ready yet, silently fail
+  }
+}
+
+function setPlatformConnected(platform, username) {
+  platformConnections[platform] = true;
+  const statusEl = platform === 'youtube' ? els.ytStatus : els.igStatus;
+  const btnEl = platform === 'youtube' ? els.btnConnectYt : els.btnConnectIg;
+
+  statusEl.textContent = username || 'Connected';
+  statusEl.classList.add('connected');
+  btnEl.innerHTML = `✓ Connected`;
+  btnEl.classList.add('connected');
+  updatePublishButton();
+}
+
+function setPlatformDisconnected(platform) {
+  platformConnections[platform] = false;
+  const statusEl = platform === 'youtube' ? els.ytStatus : els.igStatus;
+  const btnEl = platform === 'youtube' ? els.btnConnectYt : els.btnConnectIg;
+
+  statusEl.textContent = 'Not Connected';
+  statusEl.classList.remove('connected');
+  btnEl.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Connect`;
+  btnEl.classList.remove('connected');
+  updatePublishButton();
+}
+
 function updatePublishButton() {
   const anyConnected = platformConnections.instagram || platformConnections.youtube;
   const hasFiles = renderedFiles.length > 0 || selectedClips.size > 0;
   els.btnPublish.disabled = !(anyConnected && hasFiles);
 }
 
-// Instagram Connect
+// Check connection status on page load
+checkConnectionStatus();
+
+// Listen for OAuth callback from popup window
+window.addEventListener('message', (event) => {
+  if (event.data?.type === 'oauth_callback') {
+    const { platform, success, username, error } = event.data;
+    if (success) {
+      setPlatformConnected(platform, username);
+      showToast(`${platform.charAt(0).toUpperCase() + platform.slice(1)} connected as ${username}!`, 'success');
+    } else {
+      showToast(`${platform} auth failed: ${error || 'Unknown error'}`, 'error');
+    }
+  }
+});
+
+// Handle connection_update from WebSocket (when another tab connects)
+// This is handled in handleMessage below
+
+// ─── Instagram Connect ──────────────────────
 els.btnConnectIg.addEventListener('click', async () => {
   if (platformConnections.instagram) {
     // Disconnect
-    platformConnections.instagram = false;
-    els.igStatus.textContent = 'Not Connected';
-    els.igStatus.classList.remove('connected');
-    els.btnConnectIg.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Connect`;
-    els.btnConnectIg.classList.remove('connected');
-    showToast('Instagram disconnected', 'info');
-  } else {
     try {
-      const res = await fetch('/api/connect/instagram', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        platformConnections.instagram = true;
-        els.igStatus.textContent = 'Connected';
-        els.igStatus.classList.add('connected');
-        els.btnConnectIg.innerHTML = `✓ Connected`;
-        els.btnConnectIg.classList.add('connected');
-        showToast('Instagram connected!', 'success');
-      } else if (data.authUrl) {
-        window.open(data.authUrl, '_blank', 'width=600,height=700');
-        showToast('Complete login in the popup window', 'info');
-      } else {
-        showToast(data.message || 'OAuth not configured yet', 'warning');
-      }
+      await fetch('/api/disconnect/instagram', { method: 'POST' });
+      setPlatformDisconnected('instagram');
+      showToast('Instagram disconnected', 'info');
     } catch (err) {
-      showToast('Failed to connect Instagram', 'error');
+      showToast('Failed to disconnect Instagram', 'error');
     }
+    return;
   }
-  updatePublishButton();
+
+  try {
+    const res = await fetch('/api/connect/instagram', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      setPlatformConnected('instagram', data.username);
+      showToast('Instagram connected!', 'success');
+    } else if (data.authUrl) {
+      window.open(data.authUrl, '_blank', 'width=600,height=700');
+      showToast('Complete login in the popup window', 'info');
+    } else if (data.needsSetup) {
+      // Open setup guide
+      setupGuideToggle?.classList.add('open');
+      setupGuidePanel?.classList.add('open');
+      showToast(data.message || 'OAuth not configured. See Setup Guide.', 'warning');
+    } else {
+      showToast(data.message || 'OAuth not configured yet', 'warning');
+    }
+  } catch (err) {
+    showToast('Failed to connect Instagram', 'error');
+  }
 });
 
-// YouTube Connect
+// ─── YouTube Connect ────────────────────────
 els.btnConnectYt.addEventListener('click', async () => {
   if (platformConnections.youtube) {
     // Disconnect
-    platformConnections.youtube = false;
-    els.ytStatus.textContent = 'Not Connected';
-    els.ytStatus.classList.remove('connected');
-    els.btnConnectYt.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1v12M1 7h12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg> Connect`;
-    els.btnConnectYt.classList.remove('connected');
-    showToast('YouTube disconnected', 'info');
-  } else {
     try {
-      const res = await fetch('/api/connect/youtube', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        platformConnections.youtube = true;
-        els.ytStatus.textContent = 'Connected';
-        els.ytStatus.classList.add('connected');
-        els.btnConnectYt.innerHTML = `✓ Connected`;
-        els.btnConnectYt.classList.add('connected');
-        showToast('YouTube connected!', 'success');
-      } else if (data.authUrl) {
-        window.open(data.authUrl, '_blank', 'width=600,height=700');
-        showToast('Complete login in the popup window', 'info');
-      } else {
-        showToast(data.message || 'OAuth not configured yet', 'warning');
-      }
+      await fetch('/api/disconnect/youtube', { method: 'POST' });
+      setPlatformDisconnected('youtube');
+      showToast('YouTube disconnected', 'info');
     } catch (err) {
-      showToast('Failed to connect YouTube', 'error');
+      showToast('Failed to disconnect YouTube', 'error');
     }
+    return;
   }
-  updatePublishButton();
+
+  try {
+    const res = await fetch('/api/connect/youtube', { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      setPlatformConnected('youtube', data.username);
+      showToast('YouTube connected!', 'success');
+    } else if (data.authUrl) {
+      window.open(data.authUrl, '_blank', 'width=600,height=700');
+      showToast('Complete login in the popup window', 'info');
+    } else if (data.needsSetup) {
+      // Open setup guide
+      setupGuideToggle?.classList.add('open');
+      setupGuidePanel?.classList.add('open');
+      showToast(data.message || 'OAuth not configured. See Setup Guide.', 'warning');
+    } else {
+      showToast(data.message || 'OAuth not configured yet', 'warning');
+    }
+  } catch (err) {
+    showToast('Failed to connect YouTube', 'error');
+  }
 });
 
-// Publish clips
+// ─── Auto-Fill Buttons ──────────────────────
+function getFirstClipContent() {
+  // Get content from the first selected clip for auto-fill
+  const selectedArr = Array.from(selectedClips);
+  if (selectedArr.length > 0 && allClips[selectedArr[0]]) {
+    return allClips[selectedArr[0]];
+  }
+  if (allClips.length > 0) {
+    return allClips[0];
+  }
+  return null;
+}
+
+function autoFillField(fieldId, value, btnId) {
+  const field = $(`#${fieldId}`);
+  const btn = $(`#${btnId}`);
+  if (field && value) {
+    field.value = value;
+    if (btn) {
+      btn.classList.add('filled');
+      btn.textContent = '✅ Filled';
+      setTimeout(() => {
+        btn.textContent = '🤖 AI Fill';
+        btn.classList.remove('filled');
+      }, 2000);
+    }
+  } else {
+    showToast('No AI content available yet. Generate clips first.', 'warning');
+  }
+}
+
+// Instagram auto-fill
+$('#btn-autofill-ig-caption')?.addEventListener('click', () => {
+  const clip = getFirstClipContent();
+  if (clip) {
+    const caption = `${clip.caption || ''}\n\n${clip.hashtags || ''}\n\n🔥 Follow for more!`;
+    autoFillField('ig-caption', caption.trim(), 'btn-autofill-ig-caption');
+  } else {
+    showToast('No AI content available. Generate clips first.', 'warning');
+  }
+});
+
+$('#btn-autofill-ig-tags')?.addEventListener('click', () => {
+  const clip = getFirstClipContent();
+  autoFillField('ig-hashtags', clip?.hashtags || '#reels #viral #trending', 'btn-autofill-ig-tags');
+});
+
+// YouTube auto-fill
+$('#btn-autofill-yt-title')?.addEventListener('click', () => {
+  const clip = getFirstClipContent();
+  autoFillField('yt-title', clip ? `${clip.title} #Shorts` : '', 'btn-autofill-yt-title');
+});
+
+$('#btn-autofill-yt-desc')?.addEventListener('click', () => {
+  const clip = getFirstClipContent();
+  if (clip) {
+    const desc = `${clip.description || ''}\n\n${clip.hashtags || ''}\n\n📌 Subscribe for more content!`;
+    autoFillField('yt-description', desc.trim(), 'btn-autofill-yt-desc');
+  } else {
+    showToast('No AI content available. Generate clips first.', 'warning');
+  }
+});
+
+$('#btn-autofill-yt-tags')?.addEventListener('click', () => {
+  const clip = getFirstClipContent();
+  const tags = clip?.hashtags
+    ? clip.hashtags.replace(/#/g, '').split(/\s+/).filter(Boolean).join(', ')
+    : 'shorts, viral, trending';
+  autoFillField('yt-tags', tags, 'btn-autofill-yt-tags');
+});
+
+// ─── Publish Progress ───────────────────────
+const publishProgressEl = $('#publish-progress');
+
+function updatePublishProgress(clipIndex, total, status, result) {
+  if (!publishProgressEl) return;
+
+  let statusRow = publishProgressEl.querySelector(`[data-publish-clip="${clipIndex}"]`);
+
+  if (!statusRow) {
+    statusRow = document.createElement('div');
+    statusRow.className = 'publish-clip-status';
+    statusRow.setAttribute('data-publish-clip', clipIndex);
+    statusRow.innerHTML = `
+      <span class="clip-label">Clip ${clipIndex + 1}</span>
+      <div class="clip-platforms"></div>
+    `;
+    publishProgressEl.appendChild(statusRow);
+  }
+
+  const platformsEl = statusRow.querySelector('.clip-platforms');
+
+  if (status === 'uploading') {
+    platformsEl.innerHTML = '';
+    if (platformConnections.youtube) {
+      platformsEl.innerHTML += `<span class="publish-platform-tag uploading">📺 YouTube — Uploading...</span>`;
+    }
+    if (platformConnections.instagram) {
+      platformsEl.innerHTML += `<span class="publish-platform-tag uploading">📱 Instagram — Uploading...</span>`;
+    }
+  } else if (status === 'done' || status === 'error') {
+    platformsEl.innerHTML = '';
+    if (result?.youtube) {
+      const ytClass = result.youtube.success ? 'done' : 'error';
+      const ytText = result.youtube.success ? `✅ Published` : `❌ ${result.youtube.error || 'Failed'}`;
+      platformsEl.innerHTML += `<span class="publish-platform-tag ${ytClass}">📺 YouTube — ${ytText}</span>`;
+    }
+    if (result?.instagram) {
+      const igClass = result.instagram.success ? 'done' : 'error';
+      const igText = result.instagram.success ? `✅ Published` : `❌ ${result.instagram.error || 'Failed'}`;
+      platformsEl.innerHTML += `<span class="publish-platform-tag ${igClass}">📱 Instagram — ${igText}</span>`;
+    }
+  }
+}
+
+// ─── Publish Clips ──────────────────────────
 els.btnPublish.addEventListener('click', async () => {
   if (els.btnPublish.disabled) return;
   els.btnPublish.disabled = true;
   els.btnPublish.classList.add('loading');
 
+  // Clear previous progress
+  if (publishProgressEl) publishProgressEl.innerHTML = '';
+
   const workflow = {
     instagram: platformConnections.instagram ? {
-      caption: $('#ig-caption')?.value || '',
+      caption: $('#ig-caption')?.value || '{caption}\n\n{hashtags}',
       hashtags: $('#ig-hashtags')?.value || '',
     } : null,
     youtube: platformConnections.youtube ? {
-      title: $('#yt-title')?.value || '',
-      description: $('#yt-description')?.value || '',
-      tags: $('#yt-tags')?.value || '',
+      title: $('#yt-title')?.value || '{title} #Shorts',
+      description: $('#yt-description')?.value || '{description}\n\n{hashtags}',
+      tags: $('#yt-tags')?.value || 'shorts, viral, trending',
       audience: $('#yt-audience')?.value || 'all',
       visibility: $('#yt-visibility')?.value || 'public',
     } : null,
@@ -1213,15 +1441,16 @@ els.btnPublish.addEventListener('click', async () => {
 
     const data = await res.json();
     if (data.success) {
-      showToast(`Published ${data.published || 0} clips!`, 'success');
+      showToast(data.message || 'Publishing started...', 'info');
+      // Progress will be shown via WebSocket
     } else {
       showToast(data.message || 'Publish failed', 'error');
+      els.btnPublish.disabled = false;
+      els.btnPublish.classList.remove('loading');
     }
   } catch (err) {
     showToast('Publish failed: ' + err.message, 'error');
-  } finally {
     els.btnPublish.disabled = false;
     els.btnPublish.classList.remove('loading');
-    updatePublishButton();
   }
 });
