@@ -262,7 +262,7 @@ app.post('/api/stop', (req, res) => {
  * POST /api/render — Render selected clips with FFmpeg
  */
 app.post('/api/render', async (req, res) => {
-  const { selectedIndices, selectedClipsData } = req.body;
+  const { selectedIndices, selectedClipsData, customOutputDir } = req.body;
   const state = getPipelineState();
 
   if (!state || !state.videoPath || !state.selected) {
@@ -295,7 +295,8 @@ app.post('/api/render', async (req, res) => {
 
     // Create output directory named after the video
     const videoName = path.basename(state.videoPath, path.extname(state.videoPath));
-    const outputDir = path.join(rootDir, 'output', videoName);
+    const baseDir = customOutputDir && fs.existsSync(customOutputDir) ? customOutputDir : path.join(rootDir, 'output');
+    const outputDir = path.join(baseDir, videoName);
 
     await renderClips(state.videoPath, toRender, 'tiktok', outputDir, (msg) => {
       broadcast({ type: 'log', level: 'info', msg: `  ${msg}` });
@@ -387,6 +388,53 @@ app.post('/api/re-render', async (req, res) => {
 
   } catch (err) {
     broadcast({ type: 'error', msg: `Re-render failed: ${err.message}` });
+  }
+});
+
+/**
+ * POST /api/set-output-dir — Validate and set custom output directory
+ */
+app.post('/api/set-output-dir', (req, res) => {
+  const { dirPath } = req.body;
+  if (!dirPath) return res.status(400).json({ error: 'Path is required' });
+
+  const resolved = path.resolve(dirPath);
+  try {
+    fs.mkdirSync(resolved, { recursive: true });
+    if (fs.existsSync(resolved)) {
+      return res.json({ success: true, path: resolved });
+    }
+    return res.status(400).json({ error: 'Could not create directory' });
+  } catch (e) {
+    return res.status(400).json({ error: `Invalid path: ${e.message}` });
+  }
+});
+
+/**
+ * POST /api/publish-clip — Publish a single clip to a platform
+ */
+app.post('/api/publish-clip', async (req, res) => {
+  const { clip, fileUrl, platform, workflow } = req.body;
+  if (!clip || !fileUrl || !platform) {
+    return res.status(400).json({ error: 'clip, fileUrl, and platform are required' });
+  }
+
+  const connections = getConnectionStatus();
+  if (!connections[platform]?.connected) {
+    return res.json({ success: false, message: `${platform} not connected` });
+  }
+
+  res.json({ success: true, message: `Publishing to ${platform}...` });
+
+  const activeWorkflow = { youtube: null, instagram: null };
+  activeWorkflow[platform] = workflow || {};
+
+  try {
+    const result = await publishClips([clip], [fileUrl], activeWorkflow, rootDir, broadcast);
+    broadcast({ type: 'publish_done', results: result.results, summary: result.summary });
+  } catch (err) {
+    broadcast({ type: 'log', level: 'error', msg: `❌ Publish error: ${err.message}` });
+    broadcast({ type: 'publish_done', results: [], summary: { total: 0, success: 0, failed: 1 } });
   }
 });
 

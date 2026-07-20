@@ -66,10 +66,23 @@ function parseJsonResponse(response) {
  * @returns {Object} { title, description, hashtags, caption }
  */
 export async function generateSocialContent(clipText, genre, language, ollamaUrl, model) {
-  const systemPrompt = `You are a viral social media content strategist who specializes in short-form video (Instagram Reels, YouTube Shorts, TikTok).
-You create engaging, click-worthy content that maximizes views and shares.
-You understand trending hashtags, hook writing, and what makes content go viral.
-Return ONLY valid JSON. No markdown formatting, no explanation, just the raw JSON object.`;
+  const systemPrompt = `You are an elite viral social media content strategist who has grown 50+ accounts to 1M+ followers on TikTok, YouTube Shorts, and Instagram Reels.
+
+You understand:
+- Hook psychology: curiosity gaps, pattern interrupts, emotional triggers
+- Platform-specific best practices for each platform
+- Trending hashtag strategies (mix of broad + niche tags)
+- CTA patterns that drive engagement (saves, shares, comments)
+- Caption formats that maximize reach
+
+Rules:
+- Titles MUST create curiosity or emotional reaction
+- Descriptions MUST include a call-to-action
+- Hashtags MUST mix trending broad tags (#shorts #viral) with niche-specific tags
+- Captions should be punchy overlay text (not the same as the description)
+- Use emoji strategically (not excessively)
+
+Return ONLY valid JSON. No markdown formatting, no explanation, no code fences, just the raw JSON object.`;
 
   const genreContext = genre && genre !== 'auto'
     ? `The content genre is "${genre}". Use genre-specific hashtags and language.`
@@ -86,13 +99,22 @@ ${langContext}
 
 Transcript: "${clipText.slice(0, 600)}"
 
-Generate a JSON object with these fields:
-1. "title": A catchy, viral title with emoji (max 60 chars). Make it curiosity-driven.
-2. "description": An engaging description for Instagram/YouTube Shorts (2-3 sentences). Include a call-to-action like "Follow for more!" or "Save this for later!". Use emoji.
-3. "hashtags": 15-20 relevant trending hashtags as a single string, space-separated. Always include #shorts #viral #trending. Add genre-specific and niche hashtags.
-4. "caption": A short punchy one-liner for the reel overlay (max 80 chars, with emoji).
+Here are 2 examples of excellent output:
+
+Example 1 (comedy clip):
+{"title": "He really said THAT with a straight face 💀", "description": "I can't believe this actually happened 😂 This is the funniest thing I've seen all week! Save this for when you need a laugh 😭\\n\\n🔥 Follow for more hilarious clips!", "hashtags": "#shorts #viral #trending #funny #comedy #humor #lol #memes #fyp #explore #relatable #hilarious #laughing #dailyhumor #mustwatch", "caption": "Nobody expected this ending 💀😂"}
+
+Example 2 (educational clip):
+{"title": "This ONE thing changed everything 🤯", "description": "Most people have no idea about this... and it's honestly game-changing 🧠💡\\n\\nSave this for later and share with someone who needs to hear it!\\n\\n📌 Follow for more mind-blowing facts!", "hashtags": "#shorts #viral #trending #education #facts #mindblown #didyouknow #learning #fyp #explore #knowledge #tips #lifehack #motivation #growth", "caption": "Why didn't anyone teach us this?! 🤯"}
+
+Now generate content for the transcript above. Return a JSON object with exactly these 4 fields:
+1. "title": Catchy, viral title with 1-2 emoji (max 60 chars). Create curiosity or emotional reaction.
+2. "description": Engaging 2-3 sentence description with emoji and a call-to-action. Include line breaks.
+3. "hashtags": 15-20 space-separated hashtags. ALWAYS include #shorts #viral #trending. Add genre + niche tags.
+4. "caption": Short punchy overlay text with emoji (max 80 chars). Different from the title.
 
 Return ONLY: {"title": "...", "description": "...", "hashtags": "...", "caption": "..."}`;
+
 
   try {
     const response = await queryOllama(prompt, systemPrompt, ollamaUrl, model);

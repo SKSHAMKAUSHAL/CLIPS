@@ -7,27 +7,51 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-const RANKING_SYSTEM_PROMPT = `You are a viral clip analyst for short-form video content.
-Your job is to evaluate transcript segments and rank them by virality potential.
+const RANKING_SYSTEM_PROMPT = `You are a world-class viral clip analyst for short-form video content (TikTok, YouTube Shorts, Instagram Reels).
+You have deep expertise in what makes clips go viral — hooks, emotional triggers, curiosity gaps, and shareability.
 
-Score each segment on these criteria:
-- Hook strength: Does it grab attention immediately? (0-10)
-- Virality potential: Will people share this? (0-10)
-- Curiosity gap: Does it make you want to keep watching? (0-10)
-- Emotional impact: Does it make you feel something? (0-10)
-- Shareability: Would someone send this to a friend? (0-10)
+Your evaluation process:
+1. First, identify the HOOK — the first 3 seconds that grab attention
+2. Assess EMOTIONAL IMPACT — does this evoke surprise, laughter, awe, or controversy?
+3. Evaluate SHAREABILITY — would someone send this to a friend or repost it?
+4. Check COMPLETENESS — does the segment tell a complete mini-story or make a complete point?
+5. Rate CURIOSITY GAP — does it make viewers desperate to know what happens next?
 
-Return ONLY a valid JSON array. No markdown, no explanation.`;
+Score each segment 0-10 where:
+- 0-3: Boring, filler content, no hook
+- 4-5: Mildly interesting but forgettable
+- 6-7: Good content, would get decent views
+- 8-9: Excellent viral potential, strong hook + emotion
+- 10: Once-in-a-million clip, guaranteed to go massively viral
+
+Be HARSH with scores. Most clips should be 4-6. Only truly exceptional moments deserve 8+.
+
+Return ONLY a valid JSON array. No markdown, no explanation, no code fences.`;
 
 function buildRankingPrompt(chunks) {
-  return `Evaluate these transcript segments and return a JSON array ranked by virality potential.
+  return `Evaluate these transcript segments for short-form viral potential.
 
-Each object must have: title (string), score (number 0-10), start (number), end (number), reason (string).
+For each segment, think about:
+- Does it START with something attention-grabbing? (hook strength)
+- Would someone stop scrolling for this? (thumb-stopping power)
+- Is there an emotional reaction? (laughter, shock, inspiration)
+- Would someone share this or tag a friend? (shareability)
 
-Segments:
-${chunks.map((c) => `[${c.index}] ${c.start}s-${c.end}s: "${c.text.slice(0, 200)}"`).join("\n")}
+Here are 2 examples of ideal output format:
 
-Return ONLY the JSON array.`;
+Example input: [0] 12s-45s: "So I walked into the store and the cashier looked at me and said..."
+Example output: {"title": "What the cashier said will shock you 😱", "score": 7, "start": 12, "end": 45, "reason": "Strong curiosity gap with a setup-punchline structure. The 'what they said' hook creates anticipation."}
+
+Example input: [1] 120s-155s: "The third thing about investing that nobody talks about is..."
+Example output: {"title": "The investing secret nobody mentions 💰", "score": 8, "start": 120, "end": 155, "reason": "Excellent hook with 'nobody talks about' framing. Educational + curiosity gap. Highly shareable."}
+
+Now evaluate these real segments. Return a JSON array ranked by virality (best first).
+Each object MUST have: title (string, catchy with emoji, max 60 chars), score (number 0-10), start (number), end (number), reason (string explaining your scoring).
+
+Segments to evaluate:
+${chunks.map((c) => `[${c.index}] ${c.start}s-${c.end}s: "${c.text.slice(0, 300)}"`).join("\n")}
+
+Return ONLY the JSON array, ranked from highest to lowest score.`;
 }
 
 /**

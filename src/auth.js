@@ -237,13 +237,7 @@ export async function exchangeInstagramCode(code, redirectUri) {
   const appId = process.env.INSTAGRAM_APP_ID;
   const appSecret = process.env.INSTAGRAM_APP_SECRET;
 
-  // Step 1: Exchange code for short-lived token
-  const res = await fetch(META_TOKEN_URL, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-  });
-
-  // Use GET with query params for Meta's token endpoint
+  // Exchange code for access token
   const tokenUrl = `${META_TOKEN_URL}?${new URLSearchParams({
     client_id: appId,
     client_secret: appSecret,

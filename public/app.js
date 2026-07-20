@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════
-// SKATE v2 — Frontend Logic
+// SKATE v2 — Frontend Logic (Overhauled)
 // ═══════════════════════════════════════════
 
 // ─── DOM Elements ────────────────────────────
@@ -15,6 +15,9 @@ const els = {
   generateBtn: $('#generate-btn'),
   stopBtn: $('#stop-btn'),
   inputHint: $('#input-hint'),
+  // Save Path
+  savePathInput: $('#save-path-input'),
+  savePathSet: $('#save-path-set'),
   // Video Info
   videoInfoCard: $('#video-info-card'),
   videoThumb: $('#video-thumb'),
@@ -23,6 +26,12 @@ const els = {
   videoDuration: $('#video-duration'),
   videoViews: $('#video-views'),
   videoInfoClose: $('#video-info-close'),
+  // Workspace
+  workspaceSection: $('#workspace-section'),
+  workspaceVideoContainer: $('#workspace-video-container'),
+  workspaceVideoPlaceholder: $('#workspace-video-placeholder'),
+  workspaceYtIframe: $('#workspace-yt-iframe'),
+  workspaceLocalVideo: $('#workspace-local-video'),
   // Pipeline
   pipelineSection: $('#pipeline-section'),
   pipelineTimer: $('#pipeline-timer'),
@@ -64,6 +73,7 @@ const els = {
   editorContrast: $('#editor-contrast'),
   editorSaturation: $('#editor-saturation'),
   editorSharpen: $('#editor-sharpen'),
+  editorCaptionsToggle: $('#editor-captions-toggle'),
   editorValLength: $('#editor-val-length'),
   editorValZoom: $('#editor-val-zoom'),
   editorValExposure: $('#editor-val-exposure'),
@@ -71,14 +81,13 @@ const els = {
   editorValSaturation: $('#editor-val-saturation'),
   editorValSharpen: $('#editor-val-sharpen'),
   editorValRatio: $('#editor-val-ratio'),
+  editorValCaptions: $('#editor-val-captions'),
   // Volume Controls
   volumeToggle: $('#volume-toggle'),
   volumeSlider: $('#volume-slider'),
   // Ratio Selector
   ratioSelector: $('#ratio-selector'),
-  // Advanced Options
-  advToggle: $('#adv-toggle'),
-  advPanel: $('#adv-panel'),
+  // Advanced Options (now in workspace)
   advDescription: $('#adv-description'),
   timestampRows: $('#timestamp-rows'),
   btnAddTs: $('#btn-add-ts'),
@@ -99,8 +108,10 @@ let pipelineTimerInterval = null;
 let pipelineStartTime = null;
 let detectedLanguage = 'unknown';
 let videoInfoTimeout = null;
-let currentEditorRatio = '9:16';
-let editorReRenderIndex = -1; // -1 = not re-rendering, >= 0 = re-rendering specific result
+let currentEditorRatio = '1:1';
+let editorReRenderIndex = -1;
+let customOutputDir = '';
+let currentVideoTitle = '';
 
 // ─── WebSocket ───────────────────────────────
 let socket = null;
@@ -117,7 +128,6 @@ function connectWebSocket() {
   socket.onclose = () => {
     els.connectionDot.className = 'status-dot disconnected';
     els.connectionText.textContent = 'Disconnected';
-    // Auto-reconnect after 3s
     clearTimeout(reconnectTimeout);
     reconnectTimeout = setTimeout(connectWebSocket, 3000);
   };
@@ -144,6 +154,10 @@ function handleMessage(data) {
 
     case 'step':
       updateStep(data.step, data.status);
+      // When download completes, switch to local video
+      if (data.step === 'download' && data.status === 'done') {
+        switchToLocalVideo();
+      }
       break;
 
     case 'language':
@@ -162,14 +176,11 @@ function handleMessage(data) {
       break;
 
     case 're_render_done': {
-      // Update 4: Single clip re-rendered
       const { clipIndex, fileUrl } = data;
       if (fileUrl && clipIndex >= 0) {
-        // Update the rendered file in our array
         if (renderedFiles[clipIndex]) {
           renderedFiles[clipIndex] = fileUrl;
         }
-        // Update the result card video
         const resultCard = els.resultsList.querySelector(`[data-result-index="${clipIndex}"]`);
         if (resultCard) {
           const videoEl = resultCard.querySelector('video');
@@ -204,7 +215,6 @@ function handleMessage(data) {
       break;
 
     case 'connection_update': {
-      // Real-time OAuth connection updates from server
       const { platform, connected, username } = data;
       if (connected) {
         setPlatformConnected(platform, username);
@@ -215,14 +225,12 @@ function handleMessage(data) {
     }
 
     case 'publish_progress': {
-      // Per-clip upload progress
       const { clipIndex, total, status, result } = data;
       updatePublishProgress(clipIndex, total, status, result);
       break;
     }
 
     case 'publish_done': {
-      // Publishing finished
       const { summary } = data;
       els.btnPublish.disabled = false;
       els.btnPublish.classList.remove('loading');
@@ -304,21 +312,85 @@ function setProcessingState(isProcessing) {
   }
 }
 
-// ─── Video Info Fetch ────────────────────────
+// ─── Save Path ───────────────────────────────
+els.savePathSet.addEventListener('click', async () => {
+  const dirPath = els.savePathInput.value.trim();
+  if (!dirPath) return;
+
+  try {
+    const res = await fetch('/api/set-output-dir', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dirPath }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      customOutputDir = data.path;
+      els.savePathInput.value = data.path;
+      showToast(`Save path set: ${data.path}`, 'success');
+    } else {
+      showToast(data.error || 'Invalid path', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to set save path', 'error');
+  }
+});
+
+// ─── Video Info Fetch & Workspace ────────────
 els.sourceInput.addEventListener('input', () => {
   clearTimeout(videoInfoTimeout);
   const url = els.sourceInput.value.trim();
 
   if (!url || !isYouTubeUrl(url)) {
-    els.videoInfoCard.classList.remove('visible');
     return;
   }
 
-  videoInfoTimeout = setTimeout(() => fetchVideoInfo(url), 800);
+  videoInfoTimeout = setTimeout(() => {
+    fetchVideoInfo(url);
+    showWorkspaceWithEmbed(url);
+  }, 800);
+});
+
+// Also handle paste event for instant response
+els.sourceInput.addEventListener('paste', (e) => {
+  setTimeout(() => {
+    const url = els.sourceInput.value.trim();
+    if (url && isYouTubeUrl(url)) {
+      fetchVideoInfo(url);
+      showWorkspaceWithEmbed(url);
+    }
+  }, 100);
 });
 
 function isYouTubeUrl(url) {
   return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|m\.youtube\.com)/.test(url);
+}
+
+function extractYouTubeVideoId(url) {
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/|shorts\/))([a-zA-Z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
+function showWorkspaceWithEmbed(url) {
+  els.workspaceSection.classList.add('visible');
+
+  const videoId = extractYouTubeVideoId(url);
+  if (videoId) {
+    // Show YouTube embed
+    els.workspaceVideoPlaceholder.style.display = 'none';
+    els.workspaceLocalVideo.style.display = 'none';
+    els.workspaceYtIframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=0&rel=0&modestbranding=1`;
+    els.workspaceYtIframe.style.display = 'block';
+  }
+}
+
+function switchToLocalVideo() {
+  // After pipeline download, switch from iframe to local video
+  els.workspaceYtIframe.style.display = 'none';
+  els.workspaceYtIframe.src = '';
+  els.workspaceLocalVideo.src = '/api/raw_video';
+  els.workspaceLocalVideo.style.display = 'block';
+  els.workspaceVideoPlaceholder.style.display = 'none';
 }
 
 async function fetchVideoInfo(url) {
@@ -332,6 +404,7 @@ async function fetchVideoInfo(url) {
     if (!res.ok) return;
     const info = await res.json();
 
+    currentVideoTitle = info.title || 'Unknown';
     els.videoThumb.src = info.thumbnail || '';
     els.videoTitle.textContent = info.title || 'Unknown';
     els.videoChannel.textContent = info.channel || '';
@@ -348,7 +421,7 @@ els.videoInfoClose.addEventListener('click', () => {
 });
 
 // ─── Form Submit (Generate) ──────────────────
-els.form.addEventListener('submit', async (e) => {
+els.generateBtn.addEventListener('click', async (e) => {
   e.preventDefault();
   const source = els.sourceInput.value.trim();
   const genre = els.genreSelect.value;
@@ -359,10 +432,8 @@ els.form.addEventListener('submit', async (e) => {
   const description = els.advDescription.value.trim();
   const timestamps = getTimestamps();
   
-  // Update 1: Auto-select 'only' mode when timestamps are provided
   let clipMode = document.querySelector('input[name="clip-mode"]:checked')?.value || 'add';
   if (timestamps.length > 0 && !description) {
-    // If only timestamps are given (no description), auto-switch to 'only' mode
     clipMode = 'only';
     const onlyRadio = document.querySelector('input[name="clip-mode"][value="only"]');
     if (onlyRadio) onlyRadio.checked = true;
@@ -399,6 +470,12 @@ els.form.addEventListener('submit', async (e) => {
     stopTimer();
     showToast(err.message, 'error');
   }
+});
+
+// Prevent form default submit
+els.form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  els.generateBtn.click();
 });
 
 // ─── Stop Pipeline ───────────────────────────
@@ -467,7 +544,6 @@ function showReviewSection(clips) {
   });
 
   updateSelectedCount();
-  // Scroll to review section
   els.reviewSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -493,12 +569,10 @@ els.selectAllBtn.addEventListener('click', () => {
   const allSelected = selectedClips.size === allClips.length;
 
   if (allSelected) {
-    // Deselect all
     selectedClips.clear();
     cards.forEach(c => c.classList.remove('selected'));
     els.selectAllBtn.textContent = 'Select All';
   } else {
-    // Select all
     allClips.forEach((_, i) => selectedClips.add(i));
     cards.forEach(c => c.classList.add('selected'));
     els.selectAllBtn.textContent = 'Deselect All';
@@ -520,7 +594,7 @@ els.renderSelectedBtn.addEventListener('click', async () => {
       const res = await fetch('/api/render', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ selectedIndices: selectedIndicesArr, selectedClipsData }),
+        body: JSON.stringify({ selectedIndices: selectedIndicesArr, selectedClipsData, customOutputDir }),
       });
 
     const data = await res.json();
@@ -539,13 +613,11 @@ function showResultsSection(files) {
   els.resultsList.innerHTML = '';
 
   if (files.length === 0) {
-    // Show results from review data (demo mode or no actual files)
     const selected = Array.from(selectedClips).map(i => allClips[i]).filter(Boolean);
     selected.forEach((clip, i) => {
       els.resultsList.appendChild(createResultCard(clip, null, i));
     });
   } else {
-    // Show results with actual rendered videos
     const selected = Array.from(selectedClips).map(i => allClips[i]).filter(Boolean);
     files.forEach((fileUrl, i) => {
       const clip = selected[i] || allClips[i] || {};
@@ -557,10 +629,22 @@ function showResultsSection(files) {
   els.resultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// ─── Sanitize filename ───────────────────────
+function sanitizeFilename(name) {
+  return name
+    .replace(/[<>:"/\\|?*]/g, '')
+    .replace(/\s+/g, '_')
+    .replace(/[^\w\-_.]/g, '')
+    .slice(0, 80) || 'clip';
+}
+
 function createResultCard(clip, videoUrl, index) {
   const card = document.createElement('div');
   card.className = 'result-card';
   card.setAttribute('data-result-index', index);
+
+  const clipTitle = clip.title || `Clip ${index + 1}`;
+  const safeFilename = sanitizeFilename(clipTitle);
 
   const videoHtml = videoUrl
     ? `<video src="${videoUrl}?t=${Date.now()}" controls playsinline preload="metadata"></video>`
@@ -578,7 +662,7 @@ function createResultCard(clip, videoUrl, index) {
     </div>
     <div class="result-social">
       <div class="result-social-header">
-        <div class="result-title">${escapeHtml(clip.title || `Clip ${index + 1}`)}</div>
+        <div class="result-title">${escapeHtml(clipTitle)}</div>
         <div class="result-badges">
           <span class="badge badge-score">★ ${clip.score || 0}</span>
           <span class="badge badge-duration">${clip.duration || 0}s</span>
@@ -619,10 +703,18 @@ function createResultCard(clip, videoUrl, index) {
           Edit & Re-render
         </button>
         ${videoUrl
-          ? `<a href="${videoUrl}" download="skate-clip-${index + 1}.mp4" class="btn-download">
+          ? `<a href="${videoUrl}" download="${safeFilename}.mp4" class="btn-download">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0l2.5-2.5M8 10L5.5 7.5M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              Download MP4
-            </a>`
+              Download
+            </a>
+            <button class="btn-upload-yt" data-clip-index="${index}" title="Upload to YouTube">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M22.54 6.42a2.78 2.78 0 00-1.94-2C18.88 4 12 4 12 4s-6.88 0-8.6.46a2.78 2.78 0 00-1.94 2A29.94 29.94 0 001 12a29.94 29.94 0 00.46 5.58 2.78 2.78 0 001.94 2c1.72.46 8.6.46 8.6.46s6.88 0 8.6-.46a2.78 2.78 0 001.94-2A29.94 29.94 0 0023 12a29.94 29.94 0 00-.46-5.58z" stroke="currentColor" stroke-width="1.5"/><path d="M9.75 15.02l5.75-3.27-5.75-3.27v6.54z" fill="currentColor"/></svg>
+              YT
+            </button>
+            <button class="btn-upload-ig" data-clip-index="${index}" title="Upload to Instagram">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="2" y="2" width="20" height="20" rx="5" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="5" stroke="currentColor" stroke-width="1.5"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor"/></svg>
+              IG
+            </button>`
           : `<span style="font-size:0.78rem;color:var(--text-muted)">Install FFmpeg + yt-dlp for real clips</span>`
         }
       </div>
@@ -645,14 +737,64 @@ function createResultCard(clip, videoUrl, index) {
       e.stopPropagation();
       const resultIdx = parseInt(editBtn.getAttribute('data-result-index'), 10);
       editorReRenderIndex = resultIdx;
-      // Find the matching clip in allClips
       const selectedArr = Array.from(selectedClips);
       const clipIndex = selectedArr[resultIdx] ?? resultIdx;
       openEditor(clipIndex);
     });
   }
 
+  // Attach per-clip upload handlers
+  const ytBtn = card.querySelector('.btn-upload-yt');
+  if (ytBtn) {
+    ytBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(ytBtn.getAttribute('data-clip-index'), 10);
+      publishSingleClip(idx, 'youtube');
+    });
+  }
+
+  const igBtn = card.querySelector('.btn-upload-ig');
+  if (igBtn) {
+    igBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const idx = parseInt(igBtn.getAttribute('data-clip-index'), 10);
+      publishSingleClip(idx, 'instagram');
+    });
+  }
+
   return card;
+}
+
+// ─── Per-Clip Publish ────────────────────────
+async function publishSingleClip(index, platform) {
+  if (!platformConnections[platform]) {
+    showToast(`${platform} not connected. Connect it first in the Publish section.`, 'warning');
+    return;
+  }
+
+  const selectedArr = Array.from(selectedClips);
+  const clip = allClips[selectedArr[index]] || allClips[index] || {};
+  const fileUrl = renderedFiles[index];
+  if (!fileUrl) {
+    showToast('No rendered file for this clip', 'error');
+    return;
+  }
+
+  showToast(`Uploading to ${platform}...`, 'info');
+
+  try {
+    const res = await fetch('/api/publish-clip', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ clip, fileUrl, platform, workflow: {} }),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      showToast(data.message || `Failed to upload to ${platform}`, 'error');
+    }
+  } catch (err) {
+    showToast(`Upload failed: ${err.message}`, 'error');
+  }
 }
 
 // ─── Download All ────────────────────────────
@@ -662,10 +804,14 @@ els.downloadAllBtn.addEventListener('click', () => {
     return;
   }
 
+  const selected = Array.from(selectedClips).map(i => allClips[i]).filter(Boolean);
   renderedFiles.forEach((url, i) => {
+    const clip = selected[i] || allClips[i] || {};
+    const title = clip.title || `Clip ${i + 1}`;
+    const safeFilename = sanitizeFilename(title);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `skate-clip-${i + 1}.mp4`;
+    a.download = `${safeFilename}.mp4`;
     a.click();
   });
 
@@ -676,15 +822,23 @@ els.downloadAllBtn.addEventListener('click', () => {
 els.newVideoBtn.addEventListener('click', () => {
   els.sourceInput.value = '';
   els.videoInfoCard.classList.remove('visible');
+  els.workspaceSection.classList.remove('visible');
   els.pipelineSection.classList.remove('visible');
   els.reviewSection.classList.remove('visible');
   els.resultsSection.classList.remove('visible');
   els.publishSection.classList.remove('visible');
   els.terminal.innerHTML = '<div class="terminal-line terminal-muted">Ready for a new video...</div>';
+  // Reset workspace video
+  els.workspaceYtIframe.style.display = 'none';
+  els.workspaceYtIframe.src = '';
+  els.workspaceLocalVideo.style.display = 'none';
+  els.workspaceLocalVideo.src = '';
+  els.workspaceVideoPlaceholder.style.display = 'flex';
   resetSteps();
   selectedClips.clear();
   allClips = [];
   renderedFiles = [];
+  currentVideoTitle = '';
   stopTimer();
   els.heroSection.scrollIntoView({ behavior: 'smooth' });
   els.sourceInput.focus();
@@ -772,7 +926,6 @@ function copyToClipboard(text, button) {
       button.classList.remove('copied');
     }, 1500);
   }).catch(() => {
-    // Fallback
     const textarea = document.createElement('textarea');
     textarea.value = text;
     textarea.style.position = 'fixed';
@@ -830,7 +983,8 @@ function openEditor(index) {
   currentClipData.exposure = currentClipData.exposure ?? 0.0;
   currentClipData.saturation = currentClipData.saturation ?? 1.0;
   currentClipData.sharpen = currentClipData.sharpen ?? 0.0;
-  currentClipData.aspectRatio = currentClipData.aspectRatio ?? '9:16';
+  currentClipData.aspectRatio = currentClipData.aspectRatio ?? '1:1';
+  currentClipData.captionsEnabled = currentClipData.captionsEnabled ?? false;
 
   els.editorStart.min = 0;
   els.editorStart.max = currentClipData.end + 10;
@@ -846,11 +1000,15 @@ function openEditor(index) {
   els.editorSaturation.value = currentClipData.saturation;
   els.editorSharpen.value = currentClipData.sharpen;
 
+  // Set captions toggle
+  els.editorCaptionsToggle.checked = currentClipData.captionsEnabled;
+  els.editorValCaptions.textContent = currentClipData.captionsEnabled ? 'ON' : 'OFF';
+
   // Set aspect ratio
   currentEditorRatio = currentClipData.aspectRatio;
   setEditorRatio(currentEditorRatio);
 
-  // Enable audio (Update 5)
+  // Enable audio
   els.editorVideo.src = '/api/raw_video';
   els.editorVideo.volume = parseFloat(els.volumeSlider.value);
   els.editorVideo.muted = false;
@@ -877,20 +1035,17 @@ function closeEditor() {
 function setEditorRatio(ratio) {
   currentEditorRatio = ratio;
   
-  // Update button states
   els.ratioSelector.querySelectorAll('.ratio-btn').forEach(btn => {
     btn.classList.toggle('active', btn.getAttribute('data-ratio') === ratio);
   });
 
-  // Update canvas container aspect ratio
   const ratioMap = {
     '9:16': '9/16',
     '16:9': '16/9',
     '1:1': '1/1',
   };
-  els.editorCanvasContainer.style.aspectRatio = ratioMap[ratio] || '9/16';
+  els.editorCanvasContainer.style.aspectRatio = ratioMap[ratio] || '1/1';
   
-  // Update label
   if (els.editorValRatio) {
     els.editorValRatio.textContent = ratio;
   }
@@ -902,6 +1057,12 @@ els.ratioSelector.querySelectorAll('.ratio-btn').forEach(btn => {
     const ratio = btn.getAttribute('data-ratio');
     setEditorRatio(ratio);
   });
+});
+
+// ─── Captions Toggle ────────────────────────
+els.editorCaptionsToggle.addEventListener('change', () => {
+  const enabled = els.editorCaptionsToggle.checked;
+  els.editorValCaptions.textContent = enabled ? 'ON' : 'OFF';
 });
 
 // ─── Volume Controls ────────────────────────
@@ -1032,6 +1193,7 @@ els.editorSaveBtn.addEventListener("click", async () => {
     allClips[editingClipIndex].saturation = parseFloat(els.editorSaturation.value);
     allClips[editingClipIndex].sharpen = parseFloat(els.editorSharpen.value);
     allClips[editingClipIndex].aspectRatio = currentEditorRatio;
+    allClips[editingClipIndex].captionsEnabled = els.editorCaptionsToggle.checked;
     
     const cards = els.reviewGrid.querySelectorAll(".clip-card");
     if (cards[editingClipIndex]) {
@@ -1039,7 +1201,6 @@ els.editorSaveBtn.addEventListener("click", async () => {
       if (durBadge) durBadge.textContent = `${allClips[editingClipIndex].duration}s`;
     }
 
-    // Update 4: If opened from results (re-render mode), trigger single clip re-render
     if (editorReRenderIndex >= 0) {
       const reRenderIdx = editorReRenderIndex;
       showToast("Re-rendering clip...", "info");
@@ -1054,7 +1215,6 @@ els.editorSaveBtn.addEventListener("click", async () => {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Re-render failed');
-        // Response handled via WebSocket 're_render_done' message
       } catch (err) {
         appendLog(`Re-render failed: ${err.message}`, 'error');
         showToast('Re-render failed', 'error');
@@ -1066,13 +1226,7 @@ els.editorSaveBtn.addEventListener("click", async () => {
   }
 });
 
-// ─── Advanced Options ────────────────────────
-
-// Toggle panel
-els.advToggle.addEventListener('click', () => {
-  els.advToggle.classList.toggle('open');
-  els.advPanel.classList.toggle('open');
-});
+// ─── Timestamp Logic ─────────────────────────
 
 // Parse time string "mm:ss" or "h:mm:ss" to seconds
 function parseTimeStr(str) {
@@ -1115,6 +1269,15 @@ els.btnAddTs.addEventListener('click', () => {
   `;
   els.timestampRows.appendChild(row);
   bindRemoveBtn(row.querySelector('.btn-remove-ts'));
+  
+  // Seek workspace video to help user pick timestamps
+  const startInput = row.querySelector('.ts-start');
+  startInput.addEventListener('change', () => {
+    const time = parseTimeStr(startInput.value);
+    if (!isNaN(time) && els.workspaceLocalVideo.readyState >= 1) {
+      els.workspaceLocalVideo.currentTime = time;
+    }
+  });
 });
 
 // Remove timestamp row
@@ -1164,7 +1327,7 @@ async function checkConnectionStatus() {
       }
     }
   } catch (e) {
-    // Server not ready yet, silently fail
+    // Server not ready yet
   }
 }
 
@@ -1198,7 +1361,6 @@ function updatePublishButton() {
   els.btnPublish.disabled = !(anyConnected && hasFiles);
 }
 
-// Check connection status on page load
 checkConnectionStatus();
 
 // Listen for OAuth callback from popup window
@@ -1214,13 +1376,9 @@ window.addEventListener('message', (event) => {
   }
 });
 
-// Handle connection_update from WebSocket (when another tab connects)
-// This is handled in handleMessage below
-
 // ─── Instagram Connect ──────────────────────
 els.btnConnectIg.addEventListener('click', async () => {
   if (platformConnections.instagram) {
-    // Disconnect
     try {
       await fetch('/api/disconnect/instagram', { method: 'POST' });
       setPlatformDisconnected('instagram');
@@ -1241,7 +1399,6 @@ els.btnConnectIg.addEventListener('click', async () => {
       window.open(data.authUrl, '_blank', 'width=600,height=700');
       showToast('Complete login in the popup window', 'info');
     } else if (data.needsSetup) {
-      // Open setup guide
       setupGuideToggle?.classList.add('open');
       setupGuidePanel?.classList.add('open');
       showToast(data.message || 'OAuth not configured. See Setup Guide.', 'warning');
@@ -1256,7 +1413,6 @@ els.btnConnectIg.addEventListener('click', async () => {
 // ─── YouTube Connect ────────────────────────
 els.btnConnectYt.addEventListener('click', async () => {
   if (platformConnections.youtube) {
-    // Disconnect
     try {
       await fetch('/api/disconnect/youtube', { method: 'POST' });
       setPlatformDisconnected('youtube');
@@ -1277,7 +1433,6 @@ els.btnConnectYt.addEventListener('click', async () => {
       window.open(data.authUrl, '_blank', 'width=600,height=700');
       showToast('Complete login in the popup window', 'info');
     } else if (data.needsSetup) {
-      // Open setup guide
       setupGuideToggle?.classList.add('open');
       setupGuidePanel?.classList.add('open');
       showToast(data.message || 'OAuth not configured. See Setup Guide.', 'warning');
@@ -1291,7 +1446,6 @@ els.btnConnectYt.addEventListener('click', async () => {
 
 // ─── Auto-Fill Buttons ──────────────────────
 function getFirstClipContent() {
-  // Get content from the first selected clip for auto-fill
   const selectedArr = Array.from(selectedClips);
   if (selectedArr.length > 0 && allClips[selectedArr[0]]) {
     return allClips[selectedArr[0]];
@@ -1320,7 +1474,6 @@ function autoFillField(fieldId, value, btnId) {
   }
 }
 
-// Instagram auto-fill
 $('#btn-autofill-ig-caption')?.addEventListener('click', () => {
   const clip = getFirstClipContent();
   if (clip) {
@@ -1336,7 +1489,6 @@ $('#btn-autofill-ig-tags')?.addEventListener('click', () => {
   autoFillField('ig-hashtags', clip?.hashtags || '#reels #viral #trending', 'btn-autofill-ig-tags');
 });
 
-// YouTube auto-fill
 $('#btn-autofill-yt-title')?.addEventListener('click', () => {
   const clip = getFirstClipContent();
   autoFillField('yt-title', clip ? `${clip.title} #Shorts` : '', 'btn-autofill-yt-title');
@@ -1410,7 +1562,6 @@ els.btnPublish.addEventListener('click', async () => {
   els.btnPublish.disabled = true;
   els.btnPublish.classList.add('loading');
 
-  // Clear previous progress
   if (publishProgressEl) publishProgressEl.innerHTML = '';
 
   const workflow = {
@@ -1442,7 +1593,6 @@ els.btnPublish.addEventListener('click', async () => {
     const data = await res.json();
     if (data.success) {
       showToast(data.message || 'Publishing started...', 'info');
-      // Progress will be shown via WebSocket
     } else {
       showToast(data.message || 'Publish failed', 'error');
       els.btnPublish.disabled = false;

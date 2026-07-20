@@ -65,7 +65,8 @@ async function cutClip(sourceFile, outputPath, start, end, assPath, customData =
   const exposure = getNum(customData.exposure, 0.0);
   const saturation = getNum(customData.saturation, 1.0);
   const sharpen = getNum(customData.sharpen, 0.0);
-  const aspectRatio = customData.aspectRatio || '9:16';
+  const aspectRatio = customData.aspectRatio || '1:1';
+  const captionsEnabled = customData.captionsEnabled === true;
 
   // Determine output dimensions and crop ratios based on aspect ratio
   let outW, outH, cropRatioW, cropRatioH;
@@ -74,14 +75,14 @@ async function cutClip(sourceFile, outputPath, start, end, assPath, customData =
       outW = 1920; outH = 1080;
       cropRatioW = 16; cropRatioH = 9;
       break;
-    case '1:1':
-      outW = 1080; outH = 1080;
-      cropRatioW = 1; cropRatioH = 1;
-      break;
     case '9:16':
-    default:
       outW = 1080; outH = 1920;
       cropRatioW = 9; cropRatioH = 16;
+      break;
+    case '1:1':
+    default:
+      outW = 1080; outH = 1080;
+      cropRatioW = 1; cropRatioH = 1;
       break;
   }
 
@@ -124,8 +125,8 @@ async function cutClip(sourceFile, outputPath, start, end, assPath, customData =
     throw new Error(`Render failed for segment ${start}s-${end}s: Output file not created`);
   }
 
-  // Step 2: Burn subtitles (if ASS file exists)
-  if (assPath && fs.existsSync(assPath) && fs.existsSync(tempRaw)) {
+  // Step 2: Burn subtitles (only if captions are enabled and ASS file exists)
+  if (captionsEnabled && assPath && fs.existsSync(assPath) && fs.existsSync(tempRaw)) {
     // On Windows, escape backslashes and colons in the ASS path for FFmpeg filter
     let subFilter;
     if (IS_WINDOWS) {
